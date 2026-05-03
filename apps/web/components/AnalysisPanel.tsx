@@ -7,7 +7,7 @@ interface AnalysisData {
   confidence: number;
   method: string;
   dtwDistance?: number | null;
-  velocityProfile?: number[] | null;
+  velocityProfile?: string | null;
   strokeDuration?: number | null;
   meanSpeed?: number | null;
   speedPeaks?: number | null;
@@ -94,23 +94,14 @@ export default function AnalysisPanel({ data }: { data: AnalysisData | null }) {
           </div>
         )}
 
-        {data.velocityProfile && data.velocityProfile.length > 0 && (
+        {data.velocityProfile && typeof data.velocityProfile === "string" && (
           <div className="analysis-card">
-            <div className="analysis-card-title">Velocity Profile (v over t)</div>
-            <div className="velocity-chart">
-              {data.velocityProfile.map((v, i) => {
-                // Normalize for simple bar chart
-                const maxV = Math.max(...(data.velocityProfile || [1]));
-                const height = maxV > 0 ? (v / maxV) * 100 : 0;
-                return (
-                  <div 
-                    key={i} 
-                    className="velocity-bar" 
-                    style={{ height: `${height}%` }}
-                    title={`v: ${v.toFixed(1)}`}
-                  />
-                );
-              })}
+            <div className="analysis-card-title">Velocity Profile</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <Zap size={16} style={{ color: "var(--accent)" }} />
+              <span style={{ textTransform: "capitalize", fontWeight: 500 }}>
+                {data.velocityProfile.replace(/-/g, " ")}
+              </span>
             </div>
           </div>
         )}
