@@ -107,7 +107,7 @@ export function useCanvasManager({
 
       if (pencilPath.current.length >= 8) {
         // Run both Tier 1 (DTW) and Tier 2 (ML) asynchronously
-        import("../../lib/ml").then(({ predictPattern }) => {
+        import("../lib/ml").then(({ predictPattern }) => {
           predictPattern(pencilPath.current).then((mlPredictions) => {
             const result = detectShape(pencilPath.current);
             if (
