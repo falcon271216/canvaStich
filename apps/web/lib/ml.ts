@@ -123,16 +123,42 @@ export async function predictPattern(path: { x: number; y: number }[]) {
     tf.dispose([tensor, rawPred]);
   } else {
     // MOCK INFERENCE (If no model hosted yet)
-    // We simulate the output using geometric heuristics just to show the pipeline works
+    // We simulate the CNN output using geometric heuristics just to show the pipeline works.
     tf.dispose(tensor);
     
-    // Create some fake ML predictions based on path length to simulate classification
-    const randomClass = QUICK_DRAW_CLASSES[Math.floor(path.length % QUICK_DRAW_CLASSES.length)]!;
-    const secondClass = QUICK_DRAW_CLASSES[Math.floor((path.length * 2) % QUICK_DRAW_CLASSES.length)]!;
+    // Smart Mock: analyze the shape's basic proportions
+    const xs = path.map(p => p.x);
+    const ys = path.map(p => p.y);
+    const width = Math.max(...xs) - Math.min(...xs);
+    const height = Math.max(...ys) - Math.min(...ys);
+    const aspectRatio = width / (height || 1);
+    
+    let primaryClass = "unknown";
+    let secondaryClass = "unknown";
+    
+    if (aspectRatio > 3) {
+      primaryClass = "line";
+      secondaryClass = "snake";
+    } else if (aspectRatio < 0.3) {
+      primaryClass = "sword";
+      secondaryClass = "bat";
+    } else if (Math.abs(aspectRatio - 1) < 0.2) {
+      primaryClass = "sun";
+      secondaryClass = "soccer ball";
+    } else if (aspectRatio > 1.2 && aspectRatio <= 3) {
+      // Wider than tall
+      primaryClass = "mountain"; // Hill/Mountain
+      secondaryClass = "car";
+    } else {
+      // Taller than wide
+      primaryClass = "tree";
+      secondaryClass = "house";
+    }
     
     predictions = [
-      { className: randomClass, probability: 0.65 + (Math.random() * 0.2) },
-      { className: secondClass, probability: 0.15 + (Math.random() * 0.1) }
+      { className: primaryClass, probability: 0.75 + (Math.random() * 0.15) },
+      { className: secondaryClass, probability: 0.15 + (Math.random() * 0.1) },
+      { className: "cloud", probability: Math.random() * 0.05 }
     ];
   }
 

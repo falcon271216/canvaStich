@@ -5,7 +5,7 @@ import { detectShape, SlidingWindowDetector } from "@repo/pattern-detection";
 import type { Point, LiveDetection } from "@repo/pattern-detection";
 import type { ToolType } from "../components/DrawingToolSelector";
 
-const PATTERN_CONFIDENCE_THRESHOLD = 0.55;
+const PATTERN_CONFIDENCE_THRESHOLD = 0.75; // Increased from 0.55 to be stricter
 
 export type ShapeType = ToolType | "completion";
 
