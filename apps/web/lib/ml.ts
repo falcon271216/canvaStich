@@ -44,20 +44,19 @@ export async function loadModel() {
 }
 
 /**
- * Converts an array of {x, y} stroke points into a 28x28 normalized tensor,
- * exactly matching what the MNIST/QuickDraw CNN expects.
+ * Converts an array of stroke paths into a 28x28 normalized tensor.
  */
-export function preprocessStroke(path: { x: number; y: number }[]): tf.Tensor {
+export function preprocessStroke(paths: { x: number; y: number }[][]): tf.Tensor {
   return tf.tidy(() => {
-    // 1. Find bounding box
-    const xs = path.map(p => p.x);
-    const ys = path.map(p => p.y);
-    const minX = Math.min(...xs);
-    const maxX = Math.max(...xs);
-    const minY = Math.min(...ys);
-    const maxY = Math.max(...ys);
+    // 1. Find global bounding box
+    const allXs = paths.flat().map(p => p.x);
+    const allYs = paths.flat().map(p => p.y);
+    const minX = Math.min(...allXs);
+    const maxX = Math.max(...allXs);
+    const minY = Math.min(...allYs);
+    const maxY = Math.max(...allYs);
     
-    // 2. Create an offscreen canvas to draw and scale the stroke
+    // 2. Create an offscreen canvas
     const canvas = document.createElement("canvas");
     canvas.width = 28;
     canvas.height = 28;
@@ -65,8 +64,8 @@ export function preprocessStroke(path: { x: number; y: number }[]): tf.Tensor {
     
     if (ctx) {
       ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, 28, 28); // Background must be black
-      ctx.strokeStyle = "white"; // Stroke must be white
+      ctx.fillRect(0, 0, 28, 28);
+      ctx.strokeStyle = "white";
       ctx.lineWidth = 1.5;
       ctx.lineCap = "round";
       ctx.lineJoin = "round";
@@ -77,28 +76,39 @@ export function preprocessStroke(path: { x: number; y: number }[]): tf.Tensor {
       const dx = 14 - (width / 2) * scale;
       const dy = 14 - (height / 2) * scale;
       
-      ctx.beginPath();
-      ctx.moveTo((path[0]?.x - minX) * scale + dx, (path[0]?.y - minY) * scale + dy);
-      for (let i = 1; i < path.length; i++) {
-        ctx.lineTo((path[i]?.x - minX) * scale + dx, (path[i]?.y - minY) * scale + dy);
-      }
-      ctx.stroke();
+      paths.forEach(path => {
+        if (path.length === 0) return;
+        ctx.beginPath();
+        ctx.moveTo((path[0]?.x - minX) * scale + dx, (path[0]?.y - minY) * scale + dy);
+        for (let i = 1; i < path.length; i++) {
+          ctx.lineTo((path[i]?.x - minX) * scale + dx, (path[i]?.y - minY) * scale + dy);
+        }
+        ctx.stroke();
+      });
     }
     
     // 3. Convert canvas to tensor
     const imgData = tf.browser.fromPixels(canvas, 1);
     
-    // 4. Normalize and reshape for CNN input: [batch_size, width, height, channels] -> [1, 28, 28, 1]
+    // 4. Normalize and reshape
     const normalized = imgData.toFloat().div(tf.scalar(255.0));
     return normalized.expandDims(0);
   });
 }
 
+export const EMOJI_MAP: Record<string, string> = {
+  "mountain": "⛰️", "tree": "🌳", "house": "🏠", "sun": "☀️", "car": "🚗",
+  "bat": "🦇", "sword": "🗡️", "soccer ball": "⚽", "snake": "🐍", "apple": "🍎",
+  "circle": "⭕", "line": "➖", "cloud": "☁️", "flower": "🌸", "cat": "🐱", "dog": "🐶",
+  "smiley face": "🙂", "star": "⭐", "moon": "🌙", "bird": "🐦", "fish": "🐟", "heart": "❤️"
+};
+
 /**
- * Runs the stroke through the loaded CNN model.
+ * Runs the strokes through the loaded CNN model.
  */
-export async function predictPattern(path: { x: number; y: number }[]) {
-  if (path.length < 10) return null;
+export async function predictPattern(paths: { x: number; y: number }[][]) {
+  const flatPoints = paths.flat();
+  if (flatPoints.length < 10) return null;
   
   // Try to load model if not loaded
   if (!model && !isModelLoading) {
@@ -106,7 +116,7 @@ export async function predictPattern(path: { x: number; y: number }[]) {
   }
 
   // PRE-PROCESSING
-  const tensor = preprocessStroke(path);
+  const tensor = preprocessStroke(paths);
   
   // INFERENCE
   let predictions: { className: string; probability: number }[] = [];
@@ -122,15 +132,12 @@ export async function predictPattern(path: { x: number; y: number }[]) {
       
     tf.dispose([tensor, rawPred]);
   } else {
-    // MOCK INFERENCE (If no model hosted yet)
-    // We simulate the CNN output using geometric heuristics just to show the pipeline works.
+    // MOCK INFERENCE
     tf.dispose(tensor);
     
-    // Smart Mock: analyze the shape's basic proportions
-    const xs = path.map(p => p.x);
-    const ys = path.map(p => p.y);
-    const width = Math.max(...xs) - Math.min(...xs);
-    const height = Math.max(...ys) - Math.min(...ys);
+    // Smart Mock: analyze the overall shape's basic proportions
+    const width = Math.max(...flatPoints.map(p => p.x)) - Math.min(...flatPoints.map(p => p.x));
+    const height = Math.max(...flatPoints.map(p => p.y)) - Math.min(...flatPoints.map(p => p.y));
     const aspectRatio = width / (height || 1);
     
     let primaryClass = "unknown";
@@ -146,11 +153,9 @@ export async function predictPattern(path: { x: number; y: number }[]) {
       primaryClass = "sun";
       secondaryClass = "soccer ball";
     } else if (aspectRatio > 1.2 && aspectRatio <= 3) {
-      // Wider than tall
-      primaryClass = "mountain"; // Hill/Mountain
+      primaryClass = "mountain";
       secondaryClass = "car";
     } else {
-      // Taller than wide
       primaryClass = "tree";
       secondaryClass = "house";
     }

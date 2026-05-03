@@ -41,7 +41,12 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       }
 
       // Only draw shapes that are NOT pure analysis
-      if (event.shapeType !== "analysis") {
+      if (event.shapeType === "clear_shape") {
+        // Clear specific shapes
+        setShapes((prev) => prev.filter(s => 
+          JSON.stringify(s.shapeData) !== JSON.stringify(event.shapeData)
+        ));
+      } else if (event.shapeType !== "analysis") {
         setShapes((prev) => [
           ...prev,
           { shapeType: event.shapeType as ShapeType, shapeData: event.shapeData as Record<string, unknown> },
@@ -125,6 +130,70 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           <Zap size={12} />
           <span>Strokes analysed by <strong>DTW</strong> in real-time</span>
         </div>
+
+        {shapes.filter(s => s.shapeType === "pencil").length > 0 && (
+          <button
+            onClick={async () => {
+              const pencilShapes = shapes.filter(s => s.shapeType === "pencil");
+              if (pencilShapes.length === 0) return;
+              
+              const paths = pencilShapes.map(s => (s.shapeData as any).path);
+              const { predictPattern, EMOJI_MAP } = await import("../lib/ml");
+              const predictions = await predictPattern(paths);
+              
+              if (predictions && predictions.length > 0) {
+                const topClass = predictions[0]!.className;
+                const emoji = EMOJI_MAP[topClass] || "✨";
+                
+                // Calculate bounding box of all paths
+                const flatPoints = paths.flat();
+                const minX = Math.min(...flatPoints.map((p: any) => p.x));
+                const maxX = Math.max(...flatPoints.map((p: any) => p.x));
+                const minY = Math.min(...flatPoints.map((p: any) => p.y));
+                const maxY = Math.max(...flatPoints.map((p: any) => p.y));
+                
+                // Erase pencils and draw emoji
+                pencilShapes.forEach(s => sendDrawEvent("clear_shape", s.shapeData));
+                
+                sendDrawEvent("emoji", {
+                  x: minX,
+                  y: minY,
+                  w: maxX - minX,
+                  h: maxY - minY,
+                  text: emoji,
+                });
+                
+                // Local clear for fast feedback
+                setShapes(prev => prev.filter(s => s.shapeType !== "pencil"));
+                setShapes(prev => [...prev, {
+                  shapeType: "emoji" as ShapeType,
+                  shapeData: { x: minX, y: minY, w: maxX - minX, h: maxY - minY, text: emoji }
+                }]);
+              }
+            }}
+            style={{
+              position: "absolute",
+              bottom: "20px",
+              left: "50%",
+              transform: "translateX(-50%)",
+              background: "linear-gradient(135deg, #a855f7, #6366f1)",
+              color: "white",
+              border: "none",
+              padding: "0.75rem 1.5rem",
+              borderRadius: "999px",
+              fontWeight: "bold",
+              cursor: "pointer",
+              boxShadow: "0 4px 15px rgba(168, 85, 247, 0.4)",
+              zIndex: 10,
+              fontSize: "1rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.5rem"
+            }}
+          >
+            ✨ AutoDraw Magic
+          </button>
+        )}
       </div>
       
       {/* Real-time Analysis Panel */}

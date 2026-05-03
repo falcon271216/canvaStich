@@ -267,6 +267,13 @@ export function useCanvasManager({
       ctx.fillStyle = "rgba(0,0,0,1)";
       ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
       ctx.globalCompositeOperation = "source-over"; // Reset
+    } else if (shape.shapeType === "emoji") {
+      const { x, y, w, h, text } = shape.shapeData as { x: number; y: number; w: number; h: number; text: string };
+      const size = Math.max(w, h, 40); // Minimum size of 40px
+      ctx.font = `${size}px sans-serif`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(text, x + w / 2, y + h / 2);
     }
   };
 
