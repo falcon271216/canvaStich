@@ -47,11 +47,13 @@ export function useCanvasManager({
     setStart(pos);
     isDrawing.current = true;
 
-    if (tool === "pencil") {
+    if (tool === "pencil" || tool === "eraser") {
       pencilPath.current = [pos];
-      slidingDetector.current.reset();
-      slidingDetector.current.addPoint(pos);
-      setLiveDetection(null);
+      if (tool === "pencil") {
+        slidingDetector.current.reset();
+        slidingDetector.current.addPoint(pos);
+        setLiveDetection(null);
+      }
     }
   }, [tool]);
 
@@ -59,21 +61,29 @@ export function useCanvasManager({
     if (!isDrawing.current) return;
     const pos = getPos(e);
 
-    if (tool === "pencil") {
+    if (tool === "pencil" || tool === "eraser") {
       pencilPath.current.push(pos);
 
-      // Feed the sliding window detector
-      slidingDetector.current.addPoint(pos);
-      const live = slidingDetector.current.getLatestDetection();
-      if (live && live.smoothedConfidence >= 0.45) {
-        setLiveDetection(live);
+      if (tool === "pencil") {
+        // Feed the sliding window detector
+        slidingDetector.current.addPoint(pos);
+        const live = slidingDetector.current.getLatestDetection();
+        if (live && live.smoothedConfidence >= 0.45) {
+          setLiveDetection(live);
+        }
       }
 
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx) return;
 
       const path = pencilPath.current;
-      ctx.strokeStyle = "#000";
+      if (tool === "eraser") {
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.lineWidth = 20;
+      } else {
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
+      }
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -82,6 +92,11 @@ export function useCanvasManager({
         ctx.moveTo(prev.x, prev.y);
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
+      }
+      
+      if (tool === "eraser") {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineWidth = 1;
       }
     }
   }, [tool]);
@@ -101,11 +116,11 @@ export function useCanvasManager({
         stroke: "#000",
       };
       onSendDrawEventAction(tool, shapeData);
-    } else if (tool === "pencil") {
+    } else if (tool === "pencil" || tool === "eraser") {
       const pathData = { path: [...pencilPath.current], stroke: "#000" };
-      onSendDrawEventAction("pencil", pathData);
+      onSendDrawEventAction(tool, pathData);
 
-      if (pencilPath.current.length >= 8) {
+      if (tool === "pencil" && pencilPath.current.length >= 8) {
         // Run both Tier 1 (DTW) and Tier 2 (ML) asynchronously
         import("../lib/ml").then(({ predictPattern }) => {
           predictPattern(pencilPath.current).then((mlPredictions) => {
@@ -150,8 +165,10 @@ export function useCanvasManager({
       }
 
       // Clean up sliding window state
-      setLiveDetection(null);
-      slidingDetector.current.reset();
+      if (tool === "pencil") {
+        setLiveDetection(null);
+        slidingDetector.current.reset();
+      }
     }
 
     setStart(null);
@@ -223,9 +240,16 @@ export function useCanvasManager({
     } else if (shape.shapeType === "rectangle") {
       const { x1, y1, x2, y2 } = shape.shapeData as { x1: number; y1: number; x2: number; y2: number };
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-    } else if (shape.shapeType === "pencil") {
+    } else if (shape.shapeType === "pencil" || shape.shapeType === "eraser") {
       const { path } = shape.shapeData as { path: { x: number; y: number }[] };
       if (path.length < 2) return;
+      
+      if (shape.shapeType === "eraser") {
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.lineWidth = 20; // Eraser size
+        ctx.strokeStyle = "rgba(0,0,0,1)";
+      }
+
       const first = path[0];
       if (!first) return;
       ctx.moveTo(first.x, first.y);
@@ -234,6 +258,12 @@ export function useCanvasManager({
         if (p) ctx.lineTo(p.x, p.y);
       }
       ctx.stroke();
+
+      // Reset
+      if (shape.shapeType === "eraser") {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.lineWidth = 1; // default
+      }
     }
   };
 
