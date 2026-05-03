@@ -47,13 +47,11 @@ export function useCanvasManager({
     setStart(pos);
     isDrawing.current = true;
 
-    if (tool === "pencil" || tool === "eraser") {
+    if (tool === "pencil") {
       pencilPath.current = [pos];
-      if (tool === "pencil") {
-        slidingDetector.current.reset();
-        slidingDetector.current.addPoint(pos);
-        setLiveDetection(null);
-      }
+      slidingDetector.current.reset();
+      slidingDetector.current.addPoint(pos);
+      setLiveDetection(null);
     }
   }, [tool]);
 
@@ -61,29 +59,22 @@ export function useCanvasManager({
     if (!isDrawing.current) return;
     const pos = getPos(e);
 
-    if (tool === "pencil" || tool === "eraser") {
+    if (tool === "pencil") {
       pencilPath.current.push(pos);
 
-      if (tool === "pencil") {
-        // Feed the sliding window detector
-        slidingDetector.current.addPoint(pos);
-        const live = slidingDetector.current.getLatestDetection();
-        if (live && live.smoothedConfidence >= 0.45) {
-          setLiveDetection(live);
-        }
+      // Feed the sliding window detector
+      slidingDetector.current.addPoint(pos);
+      const live = slidingDetector.current.getLatestDetection();
+      if (live && live.smoothedConfidence >= 0.45) {
+        setLiveDetection(live);
       }
 
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx) return;
 
       const path = pencilPath.current;
-      if (tool === "eraser") {
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.lineWidth = 20;
-      } else {
-        ctx.strokeStyle = "#000";
-        ctx.lineWidth = 1;
-      }
+      ctx.strokeStyle = "#000";
+      ctx.lineWidth = 1;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -93,10 +84,27 @@ export function useCanvasManager({
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
       }
-      
+    } else if (tool === "eraser" || tool === "rectangle" || tool === "line") {
+      // Live preview
+      renderCanvas();
+      const ctx = canvasRef.current?.getContext("2d");
+      if (!ctx || !start) return;
+
       if (tool === "eraser") {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.lineWidth = 1;
+        ctx.save();
+        ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
+        ctx.strokeStyle = "#ef4444";
+        ctx.setLineDash([5, 5]);
+        ctx.fillRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+        ctx.restore();
+      } else if (tool === "rectangle") {
+        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+      } else if (tool === "line") {
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
       }
     }
   }, [tool]);
@@ -107,7 +115,7 @@ export function useCanvasManager({
 
     const end = getPos(e);
 
-    if (tool === "line" || tool === "rectangle") {
+    if (tool === "line" || tool === "rectangle" || tool === "eraser") {
       const shapeData = {
         x1: start.x,
         y1: start.y,
@@ -116,7 +124,8 @@ export function useCanvasManager({
         stroke: "#000",
       };
       onSendDrawEventAction(tool, shapeData);
-    } else if (tool === "pencil" || tool === "eraser") {
+      renderCanvas(); // Clear live preview
+    } else if (tool === "pencil") {
       const pathData = { path: [...pencilPath.current], stroke: "#000" };
       onSendDrawEventAction(tool, pathData);
 
@@ -240,16 +249,10 @@ export function useCanvasManager({
     } else if (shape.shapeType === "rectangle") {
       const { x1, y1, x2, y2 } = shape.shapeData as { x1: number; y1: number; x2: number; y2: number };
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-    } else if (shape.shapeType === "pencil" || shape.shapeType === "eraser") {
+    } else if (shape.shapeType === "pencil") {
       const { path } = shape.shapeData as { path: { x: number; y: number }[] };
       if (path.length < 2) return;
       
-      if (shape.shapeType === "eraser") {
-        ctx.globalCompositeOperation = "destination-out";
-        ctx.lineWidth = 20; // Eraser size
-        ctx.strokeStyle = "rgba(0,0,0,1)";
-      }
-
       const first = path[0];
       if (!first) return;
       ctx.moveTo(first.x, first.y);
@@ -258,12 +261,12 @@ export function useCanvasManager({
         if (p) ctx.lineTo(p.x, p.y);
       }
       ctx.stroke();
-
-      // Reset
-      if (shape.shapeType === "eraser") {
-        ctx.globalCompositeOperation = "source-over";
-        ctx.lineWidth = 1; // default
-      }
+    } else if (shape.shapeType === "eraser") {
+      const { x1, y1, x2, y2 } = shape.shapeData as { x1: number; y1: number; x2: number; y2: number };
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = "rgba(0,0,0,1)";
+      ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+      ctx.globalCompositeOperation = "source-over"; // Reset
     }
   };
 
