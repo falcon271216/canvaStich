@@ -44,6 +44,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     handleMouseUp,
     handleMouseMove,
     renderCanvas,
+    liveDetection,
   } = useCanvasManager({
     canvasRef,
     tool,
@@ -65,7 +66,19 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
       />
-      <p className="draw-hint">Draw with the pencil — strokes are auto-completed (circle, rectangle, triangle, etc.).</p>
+      {/* Live detection indicator — shows real-time sliding-window pattern match */}
+      {liveDetection && liveDetection.smoothedConfidence >= 0.45 && (
+        <div className="draw-live-detection">
+          <span className="draw-live-dot" />
+          Detecting:{" "}
+          <strong>{liveDetection.label}</strong>{" "}
+          ({(liveDetection.smoothedConfidence * 100).toFixed(0)}% confidence)
+        </div>
+      )}
+      <p className="draw-hint">
+        Draw with the pencil — strokes are analysed in real-time using{" "}
+        <strong>DTW</strong> (Dynamic Time Warping) and auto-completed.
+      </p>
     </div>
   );
 }

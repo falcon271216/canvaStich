@@ -138,22 +138,91 @@ app.get("/pattern-stats", async (_req: Request, res: Response): Promise<void> =>
     take: 500,
   });
   const byLabel: Record<string, number> = {};
-  const recent: { id: number; roomId: number; detectedLabel: string; confidence: number; createdAt: string }[] = [];
+  const byMethod: Record<string, number> = {};
+  const byVelocityProfile: Record<string, number> = {};
+  const recent: {
+    id: number;
+    roomId: number;
+    detectedLabel: string;
+    confidence: number;
+    method: string;
+    dtwDistance: number | null;
+    velocityProfile: string | null;
+    strokeDuration: number | null;
+    createdAt: string;
+  }[] = [];
   for (const e of completions) {
-    const data = e.data as { detectedLabel?: string; confidence?: number } | null;
+    const data = e.data as {
+      detectedLabel?: string;
+      confidence?: number;
+      method?: string;
+      dtwDistance?: number | null;
+      velocityProfile?: string | null;
+      strokeDuration?: number | null;
+    } | null;
     const label = (data?.detectedLabel as string) ?? "unknown";
+    const method = (data?.method as string) ?? "geometric";
+    const vp = (data?.velocityProfile as string) ?? "unknown";
     byLabel[label] = (byLabel[label] ?? 0) + 1;
-    if (recent.length < 20) {
+    byMethod[method] = (byMethod[method] ?? 0) + 1;
+    byVelocityProfile[vp] = (byVelocityProfile[vp] ?? 0) + 1;
+    if (recent.length < 30) {
       recent.push({
         id: e.id,
         roomId: e.roomId,
         detectedLabel: label,
         confidence: typeof data?.confidence === "number" ? data.confidence : 0,
+        method,
+        dtwDistance: typeof data?.dtwDistance === "number" ? data.dtwDistance : null,
+        velocityProfile: vp,
+        strokeDuration: typeof data?.strokeDuration === "number" ? data.strokeDuration : null,
         createdAt: e.createdAt.toISOString(),
       });
     }
   }
-  res.status(200).json({ byLabel, recent });
+  res.status(200).json({ byLabel, byMethod, byVelocityProfile, recent });
+});
+
+// Session analysis endpoint — runs CUSUM / Z-score anomaly detection on
+// draw-event timestamps for a given room, demonstrating pattern detection
+// on operational time-series data.
+app.get("/session-analysis/:roomId", async (req: Request, res: Response): Promise<void> => {
+  const roomId = Number(req.params.roomId);
+  if (isNaN(roomId)) {
+    res.status(400).json({ error: "Invalid room ID" });
+    return;
+  }
+
+  const events = await prismaClient.drawEvent.findMany({
+    where: { roomId },
+    orderBy: { createdAt: "asc" },
+    select: { createdAt: true, type: true },
+  });
+
+  if (events.length === 0) {
+    res.status(200).json({ roomId, message: "No events found", session: null });
+    return;
+  }
+
+  // Dynamic import to avoid issues if pattern-detection not built yet
+  try {
+    const { analyseSession, eventTimesToActivitySeries } = await import("@repo/pattern-detection");
+    const timestamps = events.map((e) => e.createdAt.getTime());
+    const session = analyseSession(timestamps);
+    const activitySeries = eventTimesToActivitySeries(timestamps);
+    res.status(200).json({ roomId, session, activitySeries });
+  } catch {
+    // Fallback if pattern-detection is not available
+    const timestamps = events.map((e) => e.createdAt.getTime());
+    const duration = timestamps.length >= 2
+      ? timestamps[timestamps.length - 1]! - timestamps[0]!
+      : 0;
+    res.status(200).json({
+      roomId,
+      session: { label: "unknown", duration, eventCount: timestamps.length },
+      activitySeries: [],
+    });
+  }
 });
 
 app.get("/metrics", async (_req: Request, res: Response): Promise<void> => {

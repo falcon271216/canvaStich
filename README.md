@@ -1,31 +1,66 @@
-# Excalidraw-style app with pattern detection and observability
+# Pattern Detection in Time Series Data
 
-Turborepo containing a drawing app (Excalidraw-style), **pattern detection** on time-series drawing data, and **Prometheus + Grafana** for user-activity and metrics. A dedicated **dashboard** app visualizes metrics and pattern stats.
+> A real-time collaborative drawing platform (Excalidraw-style) with **DTW-based shape recognition**, **velocity-profile analysis**, and **CUSUM / Z-score anomaly detection** on user-activity time series.
+
+## Project overview
+
+Every pencil stroke on the canvas is a **multivariate time series** — a sequence of `{x(t), y(t)}` points sampled over time. This project applies classical time-series pattern-detection algorithms to both the drawing data and the operational metrics.
+
+### Core algorithms
+
+| Algorithm | Purpose | Module |
+|---|---|---|
+| **Dynamic Time Warping (DTW)** | Compare user strokes against ideal shape templates with elastic time-warping | `dtw.ts` |
+| **Sliding Window Detection** | Real-time streaming pattern detection with EMA confidence smoothing | `slidingWindow.ts` |
+| **Velocity & Acceleration Analysis** | Extract kinematic features; classify velocity profiles (constant, multi-peak, slow-fast-slow) | `timeSeriesFeatures.ts` |
+| **Geometric Heuristics** | Convex hull, radius variance, fill-ratio scoring (combined with DTW) | `geometricDetect.ts` |
+| **CUSUM (Cumulative Sum)** | Changepoint detection in user-activity time series (Page, 1954) | `anomalyDetection.ts` |
+| **Z-Score Sliding Window** | Anomaly detection for burst / idle patterns in session activity | `anomalyDetection.ts` |
 
 ## What's inside
 
 ### Apps
 
-- **web** – Next.js drawing app: canvas (pencil, line, rectangle), real-time sync via WebSocket. Pencil strokes are analyzed and **auto-completed** (e.g. circle, rectangle, triangle, star, apple).
-- **http-backend** – REST API (auth, rooms, drawings, pattern-stats). Exposes **Prometheus** `/metrics` on port 3001.
+- **web** – Next.js drawing app: canvas (pencil, line, rectangle), real-time sync via WebSocket. Pencil strokes are **timestamped time-series data** analysed in real-time by DTW and sliding-window detectors. Auto-completed shapes (circle, rectangle, triangle, star) are rendered and broadcast.
+- **http-backend** – REST API (auth, rooms, drawings, pattern-stats, session-analysis). Exposes **Prometheus** `/metrics` on port 3001.
 - **ws-backend** – WebSocket server for draw events. Exposes **Prometheus** `/metrics` on port **8081** (HTTP server alongside WS on 8080).
-- **dashboard** – Next.js app to **visualize** time series (Prometheus) and pattern-detection stats. Runs on port 3002.
+- **dashboard** – Next.js app to **visualise** pattern-detection results, time-series charts, session behaviour analysis, and Prometheus metrics. Runs on port 3002.
 
 ### Packages
 
-- **@repo/pattern-detection** – Geometric shape detection from pencil paths (circle, rectangle, triangle, line, star, apple) and completion-shape generation.
+- **@repo/pattern-detection** – All pattern-detection algorithms:
+  - `normalizePath.ts` – Path resampling and normalisation with timestamp interpolation
+  - `dtw.ts` – DTW algorithm with Sakoe-Chiba band optimisation + ideal shape templates
+  - `geometricDetect.ts` – Combined DTW + geometric heuristic detection
+  - `timeSeriesFeatures.ts` – Velocity, acceleration, and kinematic feature extraction
+  - `slidingWindow.ts` – Sliding-window real-time detector with EMA smoothing
+  - `anomalyDetection.ts` – CUSUM and Z-score anomaly detection on activity time series
 - **@repo/ui**, **@repo/common**, **@repo/db**, **@repo/backend-common**, **@repo/typescript-config**, **@repo/eslint-config** – Shared libs and config.
 
-## Pattern detection
+## Pattern detection pipeline
 
-When you draw with the **pencil** tool, the last stroke is analyzed. If it resembles a known shape (circle, rectangle, triangle, line, star, or apple), a **completion** shape is added and broadcast to the room. Detection runs in the client using `@repo/pattern-detection`; completion events are stored as `type: "completion"` in the DB and exposed via **GET /pattern-stats** for the dashboard.
+```
+Canvas stroke {x, y, t}[]
+        │
+        ├─── Sliding Window (real-time) ──── DTW match → live ghost preview
+        │
+        └─── On mouseUp (final) ────┬──── DTW match vs templates
+                                    ├──── Geometric heuristic scores
+                                    ├──── Velocity profile extraction
+                                    └──── Combined scoring → auto-complete
+                                              │
+                                    Stored in DB with full metadata:
+                                    label, confidence, method, dtwDistance,
+                                    velocityProfile, strokeDuration
+```
 
 ## Time series and observability
 
-- **HTTP backend** (port 3001): `GET /metrics` – request duration, request count, default Node metrics.
-- **WS backend** (port 8081): `GET /metrics` – active connections, draw events total (by shape_type), active rooms.
-- **Prometheus** scrapes these targets; **Grafana** can use Prometheus as a datasource for dashboards.
-- **Dashboard** (port 3002) can query Prometheus for time-series charts and HTTP API for pattern stats.
+- **Stroke time series**: Every point has a timestamp. Velocity, acceleration, and speed profiles are computed per-stroke.
+- **Session analysis**: Draw-event timestamps are bucketed into activity-rate time series. CUSUM and Z-score detect bursts, idle periods, and changepoints.
+- **Prometheus** (HTTP :3001/metrics, WS :8081/metrics): request duration, draw events by shape, active connections, active rooms.
+- **Grafana**: Visualise Prometheus metrics for operational dashboarding.
+- **Dashboard** (:3002): `/patterns` for DTW + velocity breakdown, `/session` for CUSUM anomaly detection, `/metrics` for Prometheus time series.
 
 ## Quick start
 
@@ -60,7 +95,10 @@ When you draw with the **pencil** tool, the last stroke is analyzed. If it resem
 
 5. **Dashboard**
 
-   - Open http://localhost:3002. Use **Time series (Prometheus)** for metrics over time and **Pattern detection** for counts and recent completions. Set `NEXT_PUBLIC_HTTP_API`, `NEXT_PUBLIC_WS_METRICS`, and `NEXT_PUBLIC_PROMETHEUS_URL` if your endpoints differ.
+   - Open http://localhost:3002.
+   - **Pattern Detection**: DTW method breakdown, velocity profiles, recent completions with full metadata.
+   - **Session Analysis**: Enter a room ID to see activity-rate time series with CUSUM / Z-score anomaly markers.
+   - **Time Series (Prometheus)**: Live Prometheus metrics over time.
 
 ## Build and develop
 
@@ -68,6 +106,8 @@ When you draw with the **pencil** tool, the last stroke is analyzed. If it resem
 
 ## Useful links
 
+- [Dynamic Time Warping](https://en.wikipedia.org/wiki/Dynamic_time_warping)
+- [CUSUM](https://en.wikipedia.org/wiki/CUSUM)
 - [Turborepo](https://turborepo.com)
 - [Prometheus](https://prometheus.io)
 - [Grafana](https://grafana.com)

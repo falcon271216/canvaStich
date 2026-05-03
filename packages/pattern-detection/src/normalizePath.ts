@@ -1,10 +1,13 @@
 export interface Point {
   x: number;
   y: number;
+  /** Timestamp in milliseconds (e.g. performance.now() or Date.now()). Optional for backward compat but should always be set for time-series analysis. */
+  t?: number;
 }
 
 /**
  * Resample a path to exactly N points (equal spacing along path length).
+ * Timestamps are linearly interpolated between segment endpoints.
  */
 export function resamplePath(path: Point[], numPoints: number): Point[] {
   if (path.length < 2) return path;
@@ -29,9 +32,14 @@ export function resamplePath(path: Point[], numPoints: number): Point[] {
     if (next) {
       const segLen = dist(segStart, next);
       const t = segLen > 0 ? (target - traveled) / segLen : 0;
+      const interpT =
+        segStart.t != null && next.t != null
+          ? segStart.t + (next.t - segStart.t) * t
+          : undefined;
       out.push({
         x: segStart.x + (next.x - segStart.x) * t,
         y: segStart.y + (next.y - segStart.y) * t,
+        ...(interpT != null ? { t: interpT } : {}),
       });
     } else {
       out.push({ ...path[path.length - 1]! });
@@ -54,6 +62,7 @@ function dist(a: Point, b: Point): number {
 
 /**
  * Normalize path: resample to fixed size, center, and scale to fit in [0, size] x [0, size].
+ * Timestamps are preserved through resampling.
  */
 export function normalizePath(path: Point[], numPoints: number, size: number): Point[] {
   const resampled = resamplePath(path, numPoints);
@@ -67,6 +76,7 @@ export function normalizePath(path: Point[], numPoints: number, size: number): P
   return resampled.map((p) => ({
     x: (p.x - cx) * scale + half,
     y: (p.y - cy) * scale + half,
+    ...(p.t != null ? { t: p.t } : {}),
   }));
 }
 

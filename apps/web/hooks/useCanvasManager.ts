@@ -1,7 +1,8 @@
 "use client";
 
 import { RefObject, useCallback, useRef, useState } from "react";
-import { detectShape } from "@repo/pattern-detection";
+import { detectShape, SlidingWindowDetector } from "@repo/pattern-detection";
+import type { Point, LiveDetection } from "@repo/pattern-detection";
 import type { ToolType } from "../components/DrawingToolSelector";
 
 const PATTERN_CONFIDENCE_THRESHOLD = 0.55;
@@ -26,13 +27,18 @@ export function useCanvasManager({
 }) {
   const [start, setStart] = useState<{ x: number; y: number } | null>(null);
   const isDrawing = useRef(false);
-  const pencilPath = useRef<{ x: number; y: number }[]>([]);
+  const pencilPath = useRef<Point[]>([]);
+  /** Sliding window detector for real-time pattern feedback. */
+  const slidingDetector = useRef(new SlidingWindowDetector({ windowSize: 32, step: 6 }));
+  /** Latest live detection to render ghost preview. */
+  const [liveDetection, setLiveDetection] = useState<LiveDetection | null>(null);
 
-  const getPos = (e: React.MouseEvent) => {
+  const getPos = (e: React.MouseEvent): Point => {
     const rect = canvasRef.current?.getBoundingClientRect();
     return {
       x: e.clientX - (rect?.left || 0),
       y: e.clientY - (rect?.top || 0),
+      t: performance.now(),
     };
   };
 
@@ -43,6 +49,9 @@ export function useCanvasManager({
 
     if (tool === "pencil") {
       pencilPath.current = [pos];
+      slidingDetector.current.reset();
+      slidingDetector.current.addPoint(pos);
+      setLiveDetection(null);
     }
   }, [tool]);
 
@@ -52,6 +61,13 @@ export function useCanvasManager({
 
     if (tool === "pencil") {
       pencilPath.current.push(pos);
+
+      // Feed the sliding window detector
+      slidingDetector.current.addPoint(pos);
+      const live = slidingDetector.current.getLatestDetection();
+      if (live && live.smoothedConfidence >= 0.45) {
+        setLiveDetection(live);
+      }
 
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx) return;
@@ -100,9 +116,19 @@ export function useCanvasManager({
             completion: result.completion,
             detectedLabel: result.label,
             confidence: result.confidence,
+            method: result.method,
+            dtwDistance: result.dtwMatch?.normalizedDistance ?? null,
+            velocityProfile: result.strokeFeatures?.velocityProfile ?? null,
+            strokeDuration: result.strokeFeatures?.duration ?? null,
+            meanSpeed: result.strokeFeatures?.meanSpeed ?? null,
+            speedPeaks: result.strokeFeatures?.speedPeaks ?? null,
           });
         }
       }
+
+      // Clean up sliding window state
+      setLiveDetection(null);
+      slidingDetector.current.reset();
     }
 
     setStart(null);
@@ -195,12 +221,31 @@ export function useCanvasManager({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     shapes.forEach((shape) => drawShape(ctx, shape));
-  }, [shapes]);
+
+    // Draw ghost preview from sliding window detection
+    if (liveDetection && liveDetection.smoothedConfidence >= 0.45) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = "#6366f1";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([6, 4]);
+      ctx.font = "12px sans-serif";
+      ctx.fillStyle = "#6366f1";
+      ctx.fillText(
+        `${liveDetection.label} (${(liveDetection.smoothedConfidence * 100).toFixed(0)}%)`,
+        10,
+        canvas.height - 10,
+      );
+      ctx.restore();
+    }
+  }, [shapes, liveDetection]);
 
   return {
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
     renderCanvas,
+    /** Current live detection from the sliding window (null if none). */
+    liveDetection,
   };
 }

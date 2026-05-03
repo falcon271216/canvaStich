@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Excalidraw Metrics & Patterns",
-  description: "Time series and pattern detection visualization",
+  title: "Pattern Detection in Time Series Data — Dashboard",
+  description: "DTW shape matching, velocity-profile analysis, CUSUM anomaly detection, and Prometheus time-series observability for a collaborative drawing platform.",
 };
 
 export default function RootLayout({
@@ -20,9 +20,10 @@ export default function RootLayout({
       <body>
         <nav className="nav">
           <a href="/">Overview</a>
-          <a href="/metrics">Time series (Prometheus)</a>
-          <a href="/patterns">Pattern detection</a>
-          <a href="/raw">Raw metrics</a>
+          <a href="/patterns">Pattern Detection</a>
+          <a href="/session">Session Analysis</a>
+          <a href="/metrics">Time Series (Prometheus)</a>
+          <a href="/raw">Raw Metrics</a>
         </nav>
         {children}
       </body>

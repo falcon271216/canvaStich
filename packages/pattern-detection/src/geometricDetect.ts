@@ -1,5 +1,7 @@
 import type { Point } from "./normalizePath.js";
 import { boundingBox, normalizePath, resamplePath } from "./normalizePath.js";
+import { matchShapeDTW, type DtwMatchResult } from "./dtw.js";
+import { extractStrokeFeatures, type StrokeFeatures } from "./timeSeriesFeatures.js";
 
 export type DetectedShape =
   | "circle"
@@ -18,6 +20,14 @@ export interface DetectionResult {
   bounds: { minX: number; minY: number; maxX: number; maxY: number };
   /** Optional completion shape data for the canvas */
   completion?: CompletionShapeData;
+  /** DTW match details (null when DTW was not run, e.g. too few points). */
+  dtwMatch?: DtwMatchResult;
+  /** All DTW template results sorted by distance. */
+  dtwAllMatches?: DtwMatchResult[];
+  /** Time-series kinematic features extracted from the stroke. */
+  strokeFeatures?: StrokeFeatures;
+  /** Which algorithm produced the final label: "geometric", "dtw", or "combined". */
+  method: "geometric" | "dtw" | "combined";
 }
 
 export type CompletionShapeData =
@@ -33,49 +43,146 @@ const NORM_SIZE = 64;
 const NORM_POINTS = 64;
 
 /**
- * Detect geometric shape from a pencil path. Returns best match with confidence.
+ * Detect geometric shape from a pencil path using a **combined** approach:
+ *
+ *  1. **Geometric heuristics** (legacy) — fast, uses convex hull, radius variance, etc.
+ *  2. **Dynamic Time Warping (DTW)** — canonical time-series algorithm that compares
+ *     the normalised stroke against ideal shape templates.
+ *  3. **Time-series feature extraction** — velocity, acceleration, speed profile.
+ *
+ * The final label is determined by combining geometric and DTW scores.
+ * When they agree the confidence is boosted; when they disagree the higher-
+ * confidence signal wins.
  */
 export function detectShape(path: Point[]): DetectionResult {
   const bounds = boundingBox(path);
   if (path.length < 3) {
-    return { label: "unknown", confidence: 0, bounds };
+    return { label: "unknown", confidence: 0, bounds, method: "geometric" };
   }
 
   const normalized = normalizePath(path, NORM_POINTS, NORM_SIZE);
-  const candidates: { label: DetectedShape; confidence: number }[] = [];
+
+  /* ────── 1. Geometric heuristic scores (original approach) ────── */
+  const geoCandidates: { label: DetectedShape; confidence: number }[] = [];
 
   const lineScore = scoreLine(normalized);
-  if (lineScore > 0.5) candidates.push({ label: "line", confidence: lineScore });
+  if (lineScore > 0.5) geoCandidates.push({ label: "line", confidence: lineScore });
 
   const circleScore = scoreCircle(normalized);
-  if (circleScore > 0.5) candidates.push({ label: "circle", confidence: circleScore });
+  if (circleScore > 0.5) geoCandidates.push({ label: "circle", confidence: circleScore });
 
   const rectScore = scoreRectangle(normalized);
-  if (rectScore > 0.5) candidates.push({ label: "rectangle", confidence: rectScore });
+  if (rectScore > 0.5) geoCandidates.push({ label: "rectangle", confidence: rectScore });
 
   const triangleScore = scoreTriangle(normalized);
-  if (triangleScore > 0.5) candidates.push({ label: "triangle", confidence: triangleScore });
+  if (triangleScore > 0.5) geoCandidates.push({ label: "triangle", confidence: triangleScore });
 
   const starScore = scoreStar(normalized);
-  if (starScore > 0.5) candidates.push({ label: "star", confidence: starScore });
+  if (starScore > 0.5) geoCandidates.push({ label: "star", confidence: starScore });
 
   const appleScore = scoreApple(normalized);
-  if (appleScore > 0.5) candidates.push({ label: "apple", confidence: appleScore });
+  if (appleScore > 0.5) geoCandidates.push({ label: "apple", confidence: appleScore });
 
-  if (candidates.length === 0) {
-    return { label: "unknown", confidence: 0, bounds };
+  geoCandidates.sort((a, b) => b.confidence - a.confidence);
+  const geoBest = geoCandidates[0] ?? null;
+
+  /* ────── 2. DTW-based time-series matching ────── */
+  const dtwMatches = matchShapeDTW(normalized);
+  const dtwBest = dtwMatches[0] ?? null;
+
+  /* ────── 3. Time-series feature extraction ────── */
+  const strokeFeatures = path.some((p) => p.t != null) ? extractStrokeFeatures(path) : undefined;
+
+  /* ────── 4. Combine scores ────── */
+  let finalLabel: DetectedShape = "unknown";
+  let finalConfidence = 0;
+  let method: DetectionResult["method"] = "geometric";
+
+  if (geoBest && dtwBest) {
+    // Map DTW label to DetectedShape (they should match except "apple")
+    const dtwLabel = dtwBest.label as DetectedShape;
+
+    if (geoBest.label === dtwLabel) {
+      // Both agree → boost confidence (geometric 40% + DTW 60%)
+      finalLabel = geoBest.label;
+      finalConfidence = geoBest.confidence * 0.4 + dtwBest.confidence * 0.6;
+      method = "combined";
+    } else {
+      // Disagree → pick the one with higher confidence
+      if (dtwBest.confidence > geoBest.confidence) {
+        finalLabel = dtwLabel;
+        finalConfidence = dtwBest.confidence;
+        method = "dtw";
+      } else {
+        finalLabel = geoBest.label;
+        finalConfidence = geoBest.confidence;
+        method = "geometric";
+      }
+    }
+  } else if (dtwBest && dtwBest.confidence > 0.4) {
+    finalLabel = dtwBest.label as DetectedShape;
+    finalConfidence = dtwBest.confidence;
+    method = "dtw";
+  } else if (geoBest) {
+    finalLabel = geoBest.label;
+    finalConfidence = geoBest.confidence;
+    method = "geometric";
   }
 
-  candidates.sort((a, b) => b.confidence - a.confidence);
-  const best = candidates[0]!;
-  const completion = getCompletionShape(best.label, bounds, path);
+  // Velocity profile can provide a small confidence nudge
+  if (strokeFeatures && finalLabel !== "unknown") {
+    const profileBoost = velocityProfileBoost(finalLabel, strokeFeatures.velocityProfile);
+    finalConfidence = Math.min(1, finalConfidence + profileBoost);
+  }
+
+  if (finalLabel === "unknown") {
+    return {
+      label: "unknown",
+      confidence: 0,
+      bounds,
+      dtwMatch: dtwBest ?? undefined,
+      dtwAllMatches: dtwMatches,
+      strokeFeatures,
+      method,
+    };
+  }
+
+  const completion = getCompletionShape(finalLabel, bounds, path);
   return {
-    label: best.label,
-    confidence: best.confidence,
+    label: finalLabel,
+    confidence: finalConfidence,
     bounds,
     completion,
+    dtwMatch: dtwBest ?? undefined,
+    dtwAllMatches: dtwMatches,
+    strokeFeatures,
+    method,
   };
 }
+
+/**
+ * Give a small confidence bonus when the velocity profile matches what we
+ * expect for the detected shape.
+ */
+function velocityProfileBoost(
+  shape: DetectedShape,
+  profile: StrokeFeatures["velocityProfile"],
+): number {
+  switch (shape) {
+    case "circle":
+      return profile === "constant" ? 0.05 : 0;
+    case "line":
+      return profile === "slow-fast-slow" ? 0.05 : 0;
+    case "rectangle":
+      return profile === "multi-peak" ? 0.05 : 0;
+    case "triangle":
+      return profile === "multi-peak" ? 0.03 : 0;
+    default:
+      return 0;
+  }
+}
+
+/* ────── legacy geometric scoring functions (unchanged) ────── */
 
 function scoreLine(path: Point[]): number {
   const n = path.length;
@@ -183,12 +290,12 @@ function scoreStar(path: Point[]): number {
 }
 
 function scoreApple(path: Point[]): number {
-  const circleScore = scoreCircle(path);
+  const circScore = scoreCircle(path);
   const b = boundingBox(path);
   const h = b.maxY - b.minY;
   const w = b.maxX - b.minX;
   const isRoundish = w > 0 && h / w < 1.5 && h / w > 0.6;
-  if (circleScore > 0.5 && isRoundish) return Math.min(circleScore + 0.15, 0.85);
+  if (circScore > 0.5 && isRoundish) return Math.min(circScore + 0.15, 0.85);
   return 0.2;
 }
 
