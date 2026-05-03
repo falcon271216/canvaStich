@@ -11,6 +11,7 @@ interface AnalysisData {
   strokeDuration?: number | null;
   meanSpeed?: number | null;
   speedPeaks?: number | null;
+  mlPredictions?: { className: string; probability: number }[];
 }
 
 export default function AnalysisPanel({ data }: { data: AnalysisData | null }) {
@@ -110,6 +111,36 @@ export default function AnalysisPanel({ data }: { data: AnalysisData | null }) {
                   />
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {data.mlPredictions && data.mlPredictions.length > 0 && (
+          <div className="analysis-card">
+            <div className="analysis-card-title">Deep Learning (TFJS CNN)</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+              {data.mlPredictions.map((pred, i) => (
+                <div key={i} className="dtw-bar-container" style={{ marginTop: 0 }}>
+                  <div className="dtw-bar-label">
+                    <span style={{ textTransform: "capitalize", fontWeight: i === 0 ? 600 : 400, color: i === 0 ? "var(--text)" : "var(--text-muted)" }}>
+                      {pred.className}
+                    </span>
+                    <span style={{ color: i === 0 ? "var(--text)" : "var(--text-muted)" }}>
+                      {(pred.probability * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="dtw-bar-bg" style={{ height: i === 0 ? 6 : 4 }}>
+                    <div 
+                      className="dtw-bar-fill" 
+                      style={{ 
+                        width: `${pred.probability * 100}%`, 
+                        background: i === 0 ? "var(--accent)" : "var(--text-muted)",
+                        opacity: i === 0 ? 1 : 0.5 
+                      }} 
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}

@@ -40,6 +40,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           strokeDuration: event.shapeData.strokeDuration,
           meanSpeed: event.shapeData.meanSpeed,
           speedPeaks: event.shapeData.speedPeaks,
+          mlPredictions: event.shapeData.mlPredictions,
         });
       }
     },

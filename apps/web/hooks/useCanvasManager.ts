@@ -106,24 +106,47 @@ export function useCanvasManager({
       onSendDrawEventAction("pencil", pathData);
 
       if (pencilPath.current.length >= 8) {
-        const result = detectShape(pencilPath.current);
-        if (
-          result.confidence >= PATTERN_CONFIDENCE_THRESHOLD &&
-          result.completion &&
-          result.label !== "unknown"
-        ) {
-          onSendDrawEventAction("completion", {
-            completion: result.completion,
-            detectedLabel: result.label,
-            confidence: result.confidence,
-            method: result.method,
-            dtwDistance: result.dtwMatch?.normalizedDistance ?? null,
-            velocityProfile: result.strokeFeatures?.velocityProfile ?? null,
-            strokeDuration: result.strokeFeatures?.duration ?? null,
-            meanSpeed: result.strokeFeatures?.meanSpeed ?? null,
-            speedPeaks: result.strokeFeatures?.speedPeaks ?? null,
+        // Run both Tier 1 (DTW) and Tier 2 (ML) asynchronously
+        import("../../lib/ml").then(({ predictPattern }) => {
+          predictPattern(pencilPath.current).then((mlPredictions) => {
+            const result = detectShape(pencilPath.current);
+            if (
+              result.confidence >= PATTERN_CONFIDENCE_THRESHOLD &&
+              result.completion &&
+              result.label !== "unknown"
+            ) {
+              onSendDrawEventAction("completion", {
+                completion: result.completion,
+                detectedLabel: result.label,
+                confidence: result.confidence,
+                method: result.method,
+                dtwDistance: result.dtwMatch?.normalizedDistance ?? null,
+                velocityProfile: result.strokeFeatures?.velocityProfile ?? null,
+                strokeDuration: result.strokeFeatures?.duration ?? null,
+                meanSpeed: result.strokeFeatures?.meanSpeed ?? null,
+                speedPeaks: result.strokeFeatures?.speedPeaks ?? null,
+                mlPredictions: mlPredictions, // <-- Attaching TFJS Deep Learning Results
+              });
+            } else if (mlPredictions && mlPredictions.length > 0) {
+              // If DTW failed to find a geometric shape, use the ML prediction
+              const topPred = mlPredictions[0];
+              if (topPred && topPred.probability > 0.4) {
+                onSendDrawEventAction("completion", {
+                  completion: { type: "path", path: [...pencilPath.current], stroke: "#a855f7" }, // Highlight ML shapes
+                  detectedLabel: topPred.className,
+                  confidence: topPred.probability,
+                  method: "cnn",
+                  dtwDistance: null,
+                  velocityProfile: null,
+                  strokeDuration: null,
+                  meanSpeed: null,
+                  speedPeaks: null,
+                  mlPredictions: mlPredictions,
+                });
+              }
+            }
           });
-        }
+        });
       }
 
       // Clean up sliding window state
