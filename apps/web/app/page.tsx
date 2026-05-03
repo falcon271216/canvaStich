@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { Pen, AlertCircle, Sparkles } from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:3001";
+const API = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
 
 export default function HomePage() {
   const [tab, setTab] = useState<"signin" | "signup">("signin");
@@ -65,99 +66,127 @@ export default function HomePage() {
   };
 
   return (
-    <div className="container">
-      <h1 className="page-title">Excalidraw</h1>
-      <p className="page-subtitle">
-        Sign in or create an account to start drawing with pattern detection.
-      </p>
-      <div className="card">
-        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1.25rem" }}>
-          <button
-            type="button"
-            className={tab === "signin" ? "primary" : ""}
-            onClick={() => { setTab("signin"); setError(""); }}
-          >
-            Sign in
-          </button>
-          <button
-            type="button"
-            className={tab === "signup" ? "primary" : ""}
-            onClick={() => { setTab("signup"); setError(""); }}
-          >
-            Sign up
-          </button>
-        </div>
-        {error && (
-          <p style={{ color: "var(--error)", marginBottom: "1rem", fontSize: "0.9rem" }}>
-            {error}
+    <div className="auth-wrapper">
+      <div className="auth-card fade-in">
+        <div className="auth-header">
+          <div className="auth-logo">
+            <Pen size={26} />
+          </div>
+          <h1 className="auth-title">Excalidraw</h1>
+          <p className="auth-subtitle">
+            Real-time collaborative drawing with pattern detection
           </p>
-        )}
-        {tab === "signin" ? (
-          <form onSubmit={handleSignIn}>
-            <div className="form-group">
-              <label>Username (email)</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="you@example.com"
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
-            </div>
-            <button type="submit" className="primary" disabled={loading} style={{ width: "100%" }}>
-              {loading ? "Signing in…" : "Sign in"}
+        </div>
+
+        <div className="card">
+          <div className="auth-tabs">
+            <button
+              type="button"
+              className={`auth-tab ${tab === "signin" ? "active" : ""}`}
+              onClick={() => { setTab("signin"); setError(""); }}
+            >
+              Sign in
             </button>
-          </form>
-        ) : (
-          <form onSubmit={handleSignUp}>
-            <div className="form-group">
-              <label>Username (email)</label>
-              <input
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="you@example.com"
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Display name (optional)</label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Your name"
-              />
-            </div>
-            <button type="submit" className="primary" disabled={loading} style={{ width: "100%" }}>
-              {loading ? "Creating account…" : "Sign up"}
+            <button
+              type="button"
+              className={`auth-tab ${tab === "signup" ? "active" : ""}`}
+              onClick={() => { setTab("signup"); setError(""); }}
+            >
+              Create account
             </button>
-          </form>
-        )}
+          </div>
+
+          {error && (
+            <div className="auth-error">
+              <AlertCircle size={15} />
+              {error}
+            </div>
+          )}
+
+          {tab === "signin" ? (
+            <form onSubmit={handleSignIn}>
+              <div className="form-group">
+                <label>Email address</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              <div className="form-group">
+                <label>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="current-password"
+                />
+              </div>
+              <button
+                type="submit"
+                className="primary"
+                disabled={loading}
+                style={{ width: "100%", marginTop: "0.5rem" }}
+              >
+                {loading ? "Signing in…" : "Sign in"}
+              </button>
+            </form>
+          ) : (
+            <form onSubmit={handleSignUp}>
+              <div className="form-group">
+                <label>Email address</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="you@example.com"
+                  required
+                  autoComplete="email"
+                />
+              </div>
+              <div className="form-group">
+                <label>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="form-group">
+                <label>Display name</label>
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </div>
+              <button
+                type="submit"
+                className="primary"
+                disabled={loading}
+                style={{ width: "100%", marginTop: "0.5rem" }}
+              >
+                {loading ? "Creating account…" : "Create account"}
+              </button>
+            </form>
+          )}
+        </div>
+
+        <div className="auth-footer">
+          <Sparkles size={13} style={{ display: "inline", verticalAlign: "middle", marginRight: 4 }} />
+          Powered by DTW pattern detection
+        </div>
       </div>
-      <p style={{ textAlign: "center", marginTop: "1rem", color: "var(--text-muted)", fontSize: "0.9rem" }}>
-        <a href="/rooms">Go to rooms</a> (join with room ID)
-      </p>
     </div>
   );
 }

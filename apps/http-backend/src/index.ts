@@ -230,6 +230,6 @@ app.get("/metrics", async (_req: Request, res: Response): Promise<void> => {
   res.end(await getMetrics());
 });
 
-app.listen(3001, () => {
-  console.log("🚀 Server running on http://localhost:3001");
+app.listen(4000, () => {
+  console.log("🚀 Server running on http://localhost:4000");
 });

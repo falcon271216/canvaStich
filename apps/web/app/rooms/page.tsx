@@ -1,8 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import {
+  Pen,
+  Plus,
+  ArrowRight,
+  LogOut,
+  BarChart3,
+  Hash,
+  Sparkles,
+} from "lucide-react";
 
-const API = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:3001";
+const API = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
 
 export default function RoomsPage() {
   const [token, setToken] = useState<string | null>(null);
@@ -68,57 +77,102 @@ export default function RoomsPage() {
   return (
     <>
       <nav className="nav">
-        <a href="/">Excalidraw</a>
-        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
-          <a href={process.env.NEXT_PUBLIC_DASHBOARD_URL ?? "http://localhost:3002"} target="_blank" rel="noopener noreferrer">
-            Metrics &amp; patterns
+        <div className="nav-brand">
+          <Pen size={18} />
+          <span>Excalidraw</span>
+        </div>
+        <div className="nav-actions">
+          <a
+            href={process.env.NEXT_PUBLIC_DASHBOARD_URL ?? "http://localhost:4002"}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
+          >
+            <BarChart3 size={14} />
+            Dashboard
           </a>
-          <button type="button" onClick={handleSignOut}>Sign out</button>
+          <button type="button" onClick={handleSignOut} style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <LogOut size={14} />
+            Sign out
+          </button>
         </div>
       </nav>
-      <div className="container">
-        <h1 className="page-title">Rooms</h1>
-        <p className="page-subtitle">Create a new drawing room or join one with an ID.</p>
+
+      <div className="container fade-in">
+        <h1 className="page-title">Your Rooms</h1>
+        <p className="page-subtitle">
+          Create a new collaborative whiteboard or join an existing session.
+        </p>
+
         {error && (
-          <p style={{ color: "var(--error)", marginBottom: "1rem", fontSize: "0.9rem" }}>
+          <div className="auth-error" style={{ marginBottom: "1.5rem" }}>
             {error}
-          </p>
+          </div>
         )}
-        <div className="card" style={{ marginBottom: "1.5rem" }}>
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.75rem" }}>Create room</h2>
-          <form onSubmit={handleCreateRoom}>
-            <div className="form-group">
-              <label>Room name</label>
-              <input
-                type="text"
-                value={roomName}
-                onChange={(e) => setRoomName(e.target.value)}
-                placeholder="My whiteboard"
-                required
-              />
-            </div>
-            <button type="submit" className="primary" disabled={loading || !token} style={{ width: "100%" }}>
-              {loading ? "Creating…" : "Create and open"}
-            </button>
-          </form>
-        </div>
-        <div className="card">
-          <h2 style={{ fontSize: "1.1rem", marginBottom: "0.75rem" }}>Join room</h2>
-          <form onSubmit={handleJoinRoom}>
-            <div className="form-group">
-              <label>Room ID</label>
-              <input
-                type="text"
-                value={joinRoomId}
-                onChange={(e) => setJoinRoomId(e.target.value)}
-                placeholder="e.g. 1"
-                required
-              />
-            </div>
-            <button type="submit" className="primary" style={{ width: "100%" }}>
-              Join
-            </button>
-          </form>
+
+        <div className="rooms-grid">
+          <div className="room-card">
+            <h2>
+              <Plus size={18} />
+              Create Room
+            </h2>
+            <form onSubmit={handleCreateRoom}>
+              <div className="form-group">
+                <label>Room name</label>
+                <input
+                  type="text"
+                  value={roomName}
+                  onChange={(e) => setRoomName(e.target.value)}
+                  placeholder="My whiteboard"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="primary"
+                disabled={loading || !token}
+                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}
+              >
+                {loading ? (
+                  "Creating…"
+                ) : (
+                  <>
+                    <Sparkles size={15} />
+                    Create &amp; open
+                  </>
+                )}
+              </button>
+            </form>
+          </div>
+
+          <div className="divider">or</div>
+
+          <div className="room-card">
+            <h2>
+              <Hash size={18} />
+              Join Room
+            </h2>
+            <form onSubmit={handleJoinRoom}>
+              <div className="form-group">
+                <label>Room ID</label>
+                <input
+                  type="text"
+                  value={joinRoomId}
+                  onChange={(e) => setJoinRoomId(e.target.value)}
+                  placeholder="Enter room ID"
+                  required
+                />
+              </div>
+              <button
+                type="submit"
+                className="primary"
+                style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}
+              >
+                <ArrowRight size={15} />
+                Join room
+              </button>
+            </form>
+          </div>
         </div>
       </div>
     </>

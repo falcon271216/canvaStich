@@ -93,7 +93,7 @@ export default function MetricsPage() {
         </div>
         <p style={{ marginTop: "1rem", color: "var(--muted)" }}>
           Run Prometheus (e.g. via docker-compose in the repo) and ensure it scrapes
-          http-backend :3001/metrics and ws-backend :8081/metrics.
+          http-backend :4000/metrics and ws-backend :4004/metrics.
         </p>
       </main>
     );

@@ -22,7 +22,7 @@ interface Client {
 }
 
 const clients: Client[] = [];
-const wss = new WebSocketServer({ port: 8080 });
+const wss = new WebSocketServer({ port: 4003 });
 
 function updateActiveRooms(): void {
   const roomIds = new Set<string>();
@@ -36,8 +36,8 @@ metricsApp.get("/metrics", async (_req, res) => {
   res.set("Content-Type", getContentType());
   res.end(await getMetrics());
 });
-metricsApp.listen(8081, () => {
-  console.log("📊 Metrics on http://localhost:8081/metrics");
+metricsApp.listen(4004, () => {
+  console.log("📊 Metrics on http://localhost:4004/metrics");
 });
 
 wss.on("connection", (ws, request) => {
@@ -82,15 +82,21 @@ wss.on("connection", (ws, request) => {
         const { roomId, shapeType, shapeData } = msg;
         drawEventsTotal.inc({ shape_type: shapeType ?? "unknown" });
 
-        // Save to DB
-        await prismaClient.drawEvent.create({
-          data: {
-            roomId: Number(roomId),
-            userId,
-            type: shapeType,
-            data: shapeData,
-          },
-        });
+        // Save to DB (only if roomId is a valid integer)
+        if (!isNaN(Number(roomId))) {
+          try {
+            await prismaClient.drawEvent.create({
+              data: {
+                roomId: Number(roomId),
+                userId,
+                type: shapeType,
+                data: shapeData,
+              },
+            });
+          } catch (e) {
+            console.error("Failed to save draw event to DB:", e);
+          }
+        }
 
         // Broadcast to all in same room
         clients.forEach((c) => {

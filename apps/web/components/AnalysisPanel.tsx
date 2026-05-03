@@ -1,0 +1,119 @@
+"use client";
+
+import { Activity, Zap, MoveUpRight, FastForward, CheckCircle2 } from "lucide-react";
+
+interface AnalysisData {
+  detectedLabel: string;
+  confidence: number;
+  method: string;
+  dtwDistance?: number | null;
+  velocityProfile?: number[] | null;
+  strokeDuration?: number | null;
+  meanSpeed?: number | null;
+  speedPeaks?: number | null;
+}
+
+export default function AnalysisPanel({ data }: { data: AnalysisData | null }) {
+  if (!data) {
+    return (
+      <div className="analysis-panel empty">
+        <Activity size={24} style={{ color: "var(--text-dim)", marginBottom: "1rem" }} />
+        <p>Draw a shape to see real-time time-series analysis.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="analysis-panel">
+      <div className="analysis-header">
+        <h3 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+          <Activity size={16} style={{ color: "var(--accent)" }} />
+          Time-Series Analysis
+        </h3>
+      </div>
+
+      <div className="analysis-content fade-in">
+        <div className="analysis-card">
+          <div className="analysis-card-title">Detection Result</div>
+          <div className="detection-result">
+            <div className="detection-icon">
+              <CheckCircle2 size={24} style={{ color: "var(--success)" }} />
+            </div>
+            <div>
+              <div className="detection-label">{data.detectedLabel}</div>
+              <div className="detection-meta">
+                Confidence: {(data.confidence * 100).toFixed(1)}% • {data.method === "dtw" ? "DTW" : "Geometric"}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="analysis-card">
+          <div className="analysis-card-title">Stroke Kinematics</div>
+          <div className="kinematics-grid">
+            <div className="kinematics-item">
+              <FastForward size={14} style={{ color: "var(--text-muted)" }} />
+              <div>
+                <div className="kinematics-value">{data.strokeDuration ? (data.strokeDuration / 1000).toFixed(2) : "--"}s</div>
+                <div className="kinematics-label">Duration</div>
+              </div>
+            </div>
+            <div className="kinematics-item">
+              <MoveUpRight size={14} style={{ color: "var(--text-muted)" }} />
+              <div>
+                <div className="kinematics-value">{data.meanSpeed ? data.meanSpeed.toFixed(1) : "--"} px/s</div>
+                <div className="kinematics-label">Mean Velocity</div>
+              </div>
+            </div>
+            <div className="kinematics-item">
+              <Zap size={14} style={{ color: "var(--text-muted)" }} />
+              <div>
+                <div className="kinematics-value">{data.speedPeaks ?? "--"}</div>
+                <div className="kinematics-label">Velocity Peaks</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {data.method === "dtw" && data.dtwDistance != null && (
+          <div className="analysis-card">
+            <div className="analysis-card-title">DTW Match Distance</div>
+            <div className="dtw-bar-container">
+              <div className="dtw-bar-label">
+                <span>{data.detectedLabel} template</span>
+                <span>{data.dtwDistance.toFixed(3)}</span>
+              </div>
+              <div className="dtw-bar-bg">
+                <div 
+                  className="dtw-bar-fill" 
+                  style={{ width: `${Math.max(5, 100 - data.dtwDistance * 100)}%` }} 
+                />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {data.velocityProfile && data.velocityProfile.length > 0 && (
+          <div className="analysis-card">
+            <div className="analysis-card-title">Velocity Profile (v over t)</div>
+            <div className="velocity-chart">
+              {data.velocityProfile.map((v, i) => {
+                // Normalize for simple bar chart
+                const maxV = Math.max(...(data.velocityProfile || [1]));
+                const height = maxV > 0 ? (v / maxV) * 100 : 0;
+                return (
+                  <div 
+                    key={i} 
+                    className="velocity-bar" 
+                    style={{ height: `${height}%` }}
+                    title={`v: ${v.toFixed(1)}`}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

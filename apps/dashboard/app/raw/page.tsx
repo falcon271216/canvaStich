@@ -4,11 +4,11 @@ import { useEffect, useState } from "react";
 
 const HTTP_API =
   typeof window !== "undefined"
-    ? (process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:3001")
+    ? (process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000")
     : "";
 const WS_METRICS =
   typeof window !== "undefined"
-    ? (process.env.NEXT_PUBLIC_WS_METRICS ?? "http://localhost:8081")
+    ? (process.env.NEXT_PUBLIC_WS_METRICS ?? "http://localhost:4004")
     : "";
 
 export default function RawMetricsPage() {
@@ -43,7 +43,7 @@ export default function RawMetricsPage() {
         Prometheus text format from HTTP and WS backends.
       </p>
       <div className="card" style={{ marginBottom: "1.5rem" }}>
-        <h2 style={{ marginBottom: "0.5rem", fontSize: "1rem" }}>HTTP backend ( :3001/metrics )</h2>
+        <h2 style={{ marginBottom: "0.5rem", fontSize: "1rem" }}>HTTP backend ( :4000/metrics )</h2>
         <pre
           style={{
             overflow: "auto",
@@ -58,7 +58,7 @@ export default function RawMetricsPage() {
         </pre>
       </div>
       <div className="card">
-        <h2 style={{ marginBottom: "0.5rem", fontSize: "1rem" }}>WS backend ( :8081/metrics )</h2>
+        <h2 style={{ marginBottom: "0.5rem", fontSize: "1rem" }}>WS backend ( :4004/metrics )</h2>
         <pre
           style={{
             overflow: "auto",

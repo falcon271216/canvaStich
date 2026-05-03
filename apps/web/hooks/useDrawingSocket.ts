@@ -28,7 +28,7 @@ export function useDrawingSocket({
   useEffect(() => {
     if (!token || !roomId) return;
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:8080";
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:4003";
     const ws = new WebSocket(`${wsUrl}?token=${token}`);
     wsRef.current = ws;
 
@@ -44,7 +44,9 @@ export function useDrawingSocket({
     };
 
     return () => {
-      ws.send(JSON.stringify({ type: "leave_room", roomId }));
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "leave_room", roomId }));
+      }
       ws.close();
     };
   }, [token, roomId]);

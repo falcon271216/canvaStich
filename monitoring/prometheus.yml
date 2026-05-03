@@ -5,9 +5,9 @@ global:
 scrape_configs:
   - job_name: "excalidraw-http"
     static_configs:
-      - targets: ["host.docker.internal:3001"]
+      - targets: ["host.docker.internal:4000"]
     metrics_path: /metrics
   - job_name: "excalidraw-ws"
     static_configs:
-      - targets: ["host.docker.internal:8081"]
+      - targets: ["host.docker.internal:4004"]
     metrics_path: /metrics

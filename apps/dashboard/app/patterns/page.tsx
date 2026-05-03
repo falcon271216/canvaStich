@@ -17,7 +17,7 @@ import {
 
 const HTTP_API =
   typeof window !== "undefined"
-    ? (process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:3001")
+    ? (process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000")
     : "";
 
 interface PatternStats {
