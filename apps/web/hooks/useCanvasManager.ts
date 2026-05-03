@@ -269,7 +269,8 @@ export function useCanvasManager({
       ctx.globalCompositeOperation = "source-over"; // Reset
     } else if (shape.shapeType === "emoji") {
       const { x, y, w, h, text } = shape.shapeData as { x: number; y: number; w: number; h: number; text: string };
-      const size = Math.max(w, h, 40); // Minimum size of 40px
+      // Calculate a reasonable size: at least 40px, but capped at 250px so it doesn't overflow the screen
+      const size = Math.min(Math.max(w, h, 40), 250); 
       ctx.font = `${size}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";

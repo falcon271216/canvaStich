@@ -137,38 +137,66 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               const pencilShapes = shapes.filter(s => s.shapeType === "pencil");
               if (pencilShapes.length === 0) return;
               
-              const paths = pencilShapes.map(s => (s.shapeData as any).path);
               const { predictPattern, EMOJI_MAP } = await import("../lib/ml");
-              const predictions = await predictPattern(paths);
               
-              if (predictions && predictions.length > 0) {
-                const topClass = predictions[0]!.className;
-                const emoji = EMOJI_MAP[topClass] || "✨";
+              // Helper to get bounds
+              const getBounds = (paths: any[]) => {
+                const flat = paths.flat();
+                const minX = Math.min(...flat.map(p => p.x));
+                const maxX = Math.max(...flat.map(p => p.x));
+                const minY = Math.min(...flat.map(p => p.y));
+                const maxY = Math.max(...flat.map(p => p.y));
+                return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY };
+              };
+
+              // Spatial Clustering: Group strokes that overlap or are very close
+              let clusters: typeof pencilShapes[] = [];
+              pencilShapes.forEach(shape => {
+                const path = (shape.shapeData as any).path;
+                const bounds = getBounds([path]);
                 
-                // Calculate bounding box of all paths
-                const flatPoints = paths.flat();
-                const minX = Math.min(...flatPoints.map((p: any) => p.x));
-                const maxX = Math.max(...flatPoints.map((p: any) => p.x));
-                const minY = Math.min(...flatPoints.map((p: any) => p.y));
-                const maxY = Math.max(...flatPoints.map((p: any) => p.y));
-                
-                // Erase pencils and draw emoji
-                pencilShapes.forEach(s => sendDrawEvent("clear_shape", s.shapeData));
-                
-                sendDrawEvent("emoji", {
-                  x: minX,
-                  y: minY,
-                  w: maxX - minX,
-                  h: maxY - minY,
-                  text: emoji,
+                const intersecting = clusters.filter(cluster => {
+                  const cBounds = getBounds(cluster.map(s => (s.shapeData as any).path));
+                  const padding = 30; // 30px proximity threshold
+                  return !(
+                    bounds.minX > cBounds.maxX + padding ||
+                    bounds.maxX < cBounds.minX - padding ||
+                    bounds.minY > cBounds.maxY + padding ||
+                    bounds.maxY < cBounds.minY - padding
+                  );
                 });
                 
-                // Local clear for fast feedback
-                setShapes(prev => prev.filter(s => s.shapeType !== "pencil"));
-                setShapes(prev => [...prev, {
-                  shapeType: "emoji" as ShapeType,
-                  shapeData: { x: minX, y: minY, w: maxX - minX, h: maxY - minY, text: emoji }
-                }]);
+                const remaining = clusters.filter(c => !intersecting.includes(c));
+                remaining.push([...intersecting.flat(), shape]);
+                clusters = remaining;
+              });
+
+              // Process each cluster independently
+              for (const cluster of clusters) {
+                const paths = cluster.map(s => (s.shapeData as any).path);
+                const predictions = await predictPattern(paths);
+                
+                if (predictions && predictions.length > 0) {
+                  const topClass = predictions[0]!.className;
+                  const emoji = EMOJI_MAP[topClass] || "✨";
+                  const bounds = getBounds(paths);
+                  
+                  // Erase original pencil strokes for this cluster
+                  cluster.forEach(s => sendDrawEvent("clear_shape", s.shapeData));
+                  setShapes(prev => prev.filter(s => !cluster.includes(s)));
+                  
+                  // Add Emoji shape
+                  const emojiShape = {
+                    x: bounds.minX,
+                    y: bounds.minY,
+                    w: bounds.w,
+                    h: bounds.h,
+                    text: emoji,
+                  };
+                  
+                  sendDrawEvent("emoji", emojiShape);
+                  setShapes(prev => [...prev, { shapeType: "emoji" as ShapeType, shapeData: emojiShape }]);
+                }
               }
             }}
             style={{
