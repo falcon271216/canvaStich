@@ -115,7 +115,7 @@ export function useCanvasManager({
               result.completion &&
               result.label !== "unknown"
             ) {
-              onSendDrawEventAction("completion", {
+              onSendDrawEventAction("analysis", {
                 completion: result.completion,
                 detectedLabel: result.label,
                 confidence: result.confidence,
@@ -131,7 +131,7 @@ export function useCanvasManager({
               // If DTW failed to find a geometric shape, use the ML prediction
               const topPred = mlPredictions[0];
               if (topPred && topPred.probability > 0.4) {
-                onSendDrawEventAction("completion", {
+                onSendDrawEventAction("analysis", {
                   completion: { type: "path", path: [...pencilPath.current], stroke: "#a855f7" }, // Highlight ML shapes
                   detectedLabel: topPred.className,
                   confidence: topPred.probability,

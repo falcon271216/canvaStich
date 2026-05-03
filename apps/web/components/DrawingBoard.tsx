@@ -24,13 +24,8 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     token,
     roomId,
     onDrawEventAction: (event) => {
-      setShapes((prev) => [
-        ...prev,
-        { shapeType: event.shapeType as ShapeType, shapeData: event.shapeData as Record<string, unknown> },
-      ]);
-      
-      // Extract analysis data if it's a completion event
-      if (event.shapeType === "completion") {
+      // Always store the latest analysis data
+      if (event.shapeType === "completion" || event.shapeType === "analysis") {
         setLatestAnalysis({
           detectedLabel: event.shapeData.detectedLabel,
           confidence: event.shapeData.confidence,
@@ -41,7 +36,16 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           meanSpeed: event.shapeData.meanSpeed,
           speedPeaks: event.shapeData.speedPeaks,
           mlPredictions: event.shapeData.mlPredictions,
+          originalShapeData: event.shapeData, // Save original data for manual beautification
         });
+      }
+
+      // Only draw shapes that are NOT pure analysis
+      if (event.shapeType !== "analysis") {
+        setShapes((prev) => [
+          ...prev,
+          { shapeType: event.shapeType as ShapeType, shapeData: event.shapeData as Record<string, unknown> },
+        ]);
       }
     },
   });
@@ -124,7 +128,14 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       </div>
       
       {/* Real-time Analysis Panel */}
-      <AnalysisPanel data={latestAnalysis} />
+      <AnalysisPanel 
+        data={latestAnalysis} 
+        onBeautify={
+          latestAnalysis?.originalShapeData 
+            ? () => sendDrawEvent("completion", latestAnalysis.originalShapeData) 
+            : undefined
+        } 
+      />
     </div>
   );
 }

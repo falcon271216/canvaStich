@@ -14,7 +14,13 @@ interface AnalysisData {
   mlPredictions?: { className: string; probability: number }[];
 }
 
-export default function AnalysisPanel({ data }: { data: AnalysisData | null }) {
+export default function AnalysisPanel({ 
+  data, 
+  onBeautify 
+}: { 
+  data: AnalysisData | null;
+  onBeautify?: () => void;
+}) {
   if (!data) {
     return (
       <div className="analysis-panel empty">
@@ -26,11 +32,31 @@ export default function AnalysisPanel({ data }: { data: AnalysisData | null }) {
 
   return (
     <div className="analysis-panel">
-      <div className="analysis-header">
+      <div className="analysis-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <h3 style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
           <Activity size={16} style={{ color: "var(--accent)" }} />
           Time-Series Analysis
         </h3>
+        {onBeautify && (
+          <button 
+            onClick={onBeautify}
+            style={{
+              background: "var(--accent)",
+              color: "white",
+              border: "none",
+              padding: "0.3rem 0.6rem",
+              borderRadius: "4px",
+              fontSize: "0.75rem",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.3rem",
+              fontWeight: 600
+            }}
+          >
+            ✨ Beautify
+          </button>
+        )}
       </div>
 
       <div className="analysis-content fade-in">
