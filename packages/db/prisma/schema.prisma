@@ -19,6 +19,7 @@ model User {
   messages  Message[]
   drawings  DrawEvent[]
   roomMemberships RoomMember[]
+  workspaces Workspace[]
 }
 
 model Room {
@@ -31,6 +32,7 @@ model Room {
   messages    Message[]
   drawings    DrawEvent[]
   members     RoomMember[]
+  projects    Project[]
 }
 
 model Message {
@@ -66,4 +68,47 @@ model RoomMember {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
+}
+
+// ═══════════════════════════════════════════════════════════
+// SKETCHUI — SaaS Infrastructure
+// ═══════════════════════════════════════════════════════════
+
+model Workspace {
+  id        String       @id @default(uuid())
+  name      String
+  ownerId   String
+  plan      String       @default("free") // free | pro | team
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  owner     User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  projects  Project[]
+  usage     UsageEvent[]
+}
+
+model Project {
+  id            String    @id @default(uuid())
+  workspaceId   String
+  name          String
+  roomId        Int?
+  layoutTree    Json?
+  generatedCode Json?
+  framework     String    @default("react")
+  thumbnailUrl  String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  room          Room?     @relation(fields: [roomId], references: [id])
+}
+
+model UsageEvent {
+  id          String    @id @default(uuid())
+  workspaceId String
+  eventType   String    // e.g., 'code_export', 'project_create', 'detection_run'
+  metadata    Json?
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
