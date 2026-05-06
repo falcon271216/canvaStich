@@ -7,7 +7,7 @@ import type { ToolType } from "../components/DrawingToolSelector";
 
 const PATTERN_CONFIDENCE_THRESHOLD = 0.75; // Increased from 0.55 to be stricter
 
-export type ShapeType = ToolType | "completion";
+export type ShapeType = ToolType | "completion" | "analysis" | "emoji" | "clear_shape";
 
 interface Shape {
   shapeType: ShapeType;

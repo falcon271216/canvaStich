@@ -56,3 +56,68 @@ export type {
   CusumConfig,
   SessionPattern,
 } from "./anomalyDetection.js";
+
+/* ════════════════════════════════════════════════════════════
+   SketchUI — Sketch-to-Wireframe Intelligence Pipeline
+   ════════════════════════════════════════════════════════════ */
+
+/* ────── UI component labels & types ────── */
+export {
+  UI_COMPONENT_LABELS,
+  UI_CLASS_COUNT,
+  UI_COMPONENT_ICONS,
+  UI_COMPONENT_DISPLAY_NAMES,
+  UI_COMPONENT_HINTS,
+} from "./uiLabels.js";
+export type {
+  UIComponentType,
+  ComponentHint,
+} from "./uiLabels.js";
+
+/* ────── UI feature extraction ────── */
+export { extractUIFeatures } from "./uiFeatures.js";
+export type {
+  StrokeFeatureVector,
+  BoundingBox,
+} from "./uiFeatures.js";
+
+/* ────── synthetic data generation ────── */
+export {
+  generateSyntheticStrokes,
+  generateFullDataset,
+} from "./syntheticData.js";
+export type { SyntheticSample } from "./syntheticData.js";
+
+/* ────── UI component classifier ────── */
+export {
+  classifyUIComponent,
+  classifyMultiple,
+} from "./uiClassifier.js";
+export type { UIDetectionResult } from "./uiClassifier.js";
+
+/* ────── spatial clustering (DBSCAN) ────── */
+export {
+  clusterComponents,
+  mergeOverlappingComponents,
+} from "./clustering.js";
+export type {
+  DetectedComponent,
+  ComponentGroup,
+} from "./clustering.js";
+
+/* ────── layout tree builder ────── */
+export {
+  buildContainmentTree,
+  flattenTree,
+  findNodeById,
+  updateNodeType,
+} from "./layoutTree.js";
+export type { LayoutNode } from "./layoutTree.js";
+
+/* ────── code generation engine ────── */
+export {
+  generateCode,
+  generateFullComponent,
+  generateAllFormats,
+} from "./codeGen.js";
+export type { Framework } from "./codeGen.js";

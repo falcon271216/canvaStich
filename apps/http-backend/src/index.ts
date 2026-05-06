@@ -16,12 +16,15 @@ import {
   signinSchema,
   CreateRoomSchema,
 } from "@repo/common/types";
+import generateRoutes from "./routes/generate";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(metricsMiddleware);
 
+// SketchUI code generation API
+app.use("/api", generateRoutes);
 
 app.post("/signup", async (req: Request, res: Response): Promise<void> => {
   const parsed = createUserSchema.safeParse(req.body);

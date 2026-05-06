@@ -1,171 +1,146 @@
-import * as tf from "@tensorflow/tfjs";
+/**
+ * ML inference pipeline for the SketchUI system.
+ *
+ * Replaces the original QuickDraw CNN mock with the UI component classifier
+ * from @repo/pattern-detection. Uses heuristic + DTW ensemble for real-time
+ * classification, with a CNN stub for future model integration.
+ */
 
-// A list of 100 classes from the Google Quick Draw dataset
-export const QUICK_DRAW_CLASSES = [
-  "apple", "axe", "banana", "basketball", "bat", "bed", "bench", "bicycle", "bird", "book",
-  "bowtie", "bridge", "broom", "bucket", "bus", "butterfly", "camera", "car", "cat", "chair",
-  "circle", "clock", "cloud", "coffee cup", "compass", "computer", "cookie", "cup", "diamond", "dog",
-  "door", "donut", "envelope", "eye", "face", "fish", "flower", "flying saucer", "foot", "football",
-  "fork", "frog", "hammer", "hand", "hat", "headphones", "helmet", "hexagon", "house", "ice cream",
-  "jacket", "key", "keyboard", "knife", "ladder", "leaf", "light bulb", "lightning", "line", "lollipop",
-  "microphone", "moon", "mountain", "mouse", "mushroom", "octagon", "owl", "pants", "paper clip", "parachute",
-  "pencil", "piano", "picture frame", "pizza", "rainbow", "rectangle", "river", "road", "school bus", "scissors",
-  "shoe", "shorts", "smiley face", "snake", "snowflake", "snowman", "soccer ball", "spider", "spoon", "square",
-  "star", "stop sign", "sun", "sword", "t-shirt", "table", "television", "tent", "tree", "triangle"
-];
+import {
+  classifyUIComponent,
+  UI_COMPONENT_LABELS,
+  UI_COMPONENT_ICONS,
+  UI_COMPONENT_DISPLAY_NAMES,
+  type UIComponentType,
+  type UIDetectionResult,
+} from "@repo/pattern-detection";
 
-let model: tf.LayersModel | null = null;
-let isModelLoading = false;
+/* ────────────────────── icon map ────────────────────── */
+
+/** Component type → display emoji (used in canvas overlays). */
+export const UI_ICON_MAP: Record<string, string> = { ...UI_COMPONENT_ICONS };
+
+/** Re-export for convenience. */
+export { UI_COMPONENT_LABELS, UI_COMPONENT_DISPLAY_NAMES };
+export type { UIComponentType, UIDetectionResult };
+
+/* ────────────────────── CNN stub ────────────────────── */
+
+let _cnnReady = false;
 
 /**
- * Loads the pre-trained QuickDraw CNN model.
- * In a real-world scenario, you host this model.json and group1-shard1.bin on your server.
+ * Loads a pre-trained TF.js CNN model for UI component classification.
+ *
+ * NOTE: Currently a stub — the model has not been trained yet.
+ * When a real model is available, load it from `/model/ui-classifier/model.json`
+ * and use it in `predictUIComponent()`.
  */
-export async function loadModel() {
-  if (model || isModelLoading) return model;
-  
+export async function loadModel(): Promise<boolean> {
+  if (_cnnReady) return true;
   try {
-    isModelLoading = true;
-    // We attempt to load a known public lightweight CNN for QuickDraw.
-    // NOTE: For a Final Year Project, you would train your own Keras model and export it to TFJS,
-    // then serve it from your Next.js public folder (e.g., "/model/model.json").
-    
-    // As a robust fallback for the UI if no model is hosted, we don't throw an error, 
-    // but we simulate the interface so the architecture is fully intact.
-    // To use a real model: model = await tf.loadLayersModel('/model/model.json');
-    console.log("[ML Pipeline] Ready to load TFJS QuickDraw model.");
-    return null;
+    // Future: model = await tf.loadLayersModel('/model/ui-classifier/model.json');
+    console.log("[SketchUI ML] CNN stub ready — using heuristic+DTW ensemble for classification.");
+    _cnnReady = true;
+    return true;
   } catch (err) {
-    console.error("Failed to load ML model", err);
-    return null;
-  } finally {
-    isModelLoading = false;
+    console.error("[SketchUI ML] Failed to load model:", err);
+    return false;
   }
 }
 
-/**
- * Converts an array of stroke paths into a 28x28 normalized tensor.
- */
-export function preprocessStroke(paths: { x: number; y: number }[][]): tf.Tensor {
-  return tf.tidy(() => {
-    // 1. Find global bounding box
-    const allXs = paths.flat().map(p => p.x);
-    const allYs = paths.flat().map(p => p.y);
-    const minX = Math.min(...allXs);
-    const maxX = Math.max(...allXs);
-    const minY = Math.min(...allYs);
-    const maxY = Math.max(...allYs);
-    
-    // 2. Create an offscreen canvas
-    const canvas = document.createElement("canvas");
-    canvas.width = 28;
-    canvas.height = 28;
-    const ctx = canvas.getContext("2d");
-    
-    if (ctx) {
-      ctx.fillStyle = "black";
-      ctx.fillRect(0, 0, 28, 28);
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = 1.5;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-      
-      const width = Math.max(maxX - minX, 1);
-      const height = Math.max(maxY - minY, 1);
-      const scale = Math.min(20 / width, 20 / height);
-      const dx = 14 - (width / 2) * scale;
-      const dy = 14 - (height / 2) * scale;
-      
-      paths.forEach(path => {
-        if (path.length === 0) return;
-        ctx.beginPath();
-        ctx.moveTo((path[0]?.x - minX) * scale + dx, (path[0]?.y - minY) * scale + dy);
-        for (let i = 1; i < path.length; i++) {
-          ctx.lineTo((path[i]?.x - minX) * scale + dx, (path[i]?.y - minY) * scale + dy);
-        }
-        ctx.stroke();
-      });
-    }
-    
-    // 3. Convert canvas to tensor
-    const imgData = tf.browser.fromPixels(canvas, 1);
-    
-    // 4. Normalize and reshape
-    const normalized = imgData.toFloat().div(tf.scalar(255.0));
-    return normalized.expandDims(0);
-  });
+/* ────────────────────── main prediction API ────────────────────── */
+
+export interface UIPrediction {
+  className: string;
+  displayName: string;
+  probability: number;
+  icon: string;
 }
 
-export const EMOJI_MAP: Record<string, string> = {
-  "mountain": "⛰️", "tree": "🌳", "house": "🏠", "sun": "☀️", "car": "🚗",
-  "bat": "🦇", "sword": "🗡️", "soccer ball": "⚽", "snake": "🐍", "apple": "🍎",
-  "circle": "⭕", "line": "➖", "cloud": "☁️", "flower": "🌸", "cat": "🐱", "dog": "🐶",
-  "smiley face": "🙂", "star": "⭐", "moon": "🌙", "bird": "🐦", "fish": "🐟", "heart": "❤️"
-};
-
 /**
- * Runs the strokes through the loaded CNN model.
+ * Classify a set of strokes into UI component types.
+ *
+ * @param paths   Array of stroke paths (each path is an array of {x, y} points).
+ * @param canvasWidth   Canvas width in pixels.
+ * @param canvasHeight  Canvas height in pixels.
+ * @returns Top predictions sorted by confidence.
  */
-export async function predictPattern(paths: { x: number; y: number }[][]) {
+export async function predictUIComponent(
+  paths: { x: number; y: number; t?: number }[][],
+  canvasWidth = 900,
+  canvasHeight = 600,
+): Promise<UIPrediction[]> {
   const flatPoints = paths.flat();
-  if (flatPoints.length < 10) return null;
-  
-  // Try to load model if not loaded
-  if (!model && !isModelLoading) {
-    await loadModel();
-  }
+  if (flatPoints.length < 5) return [];
 
-  // PRE-PROCESSING
-  const tensor = preprocessStroke(paths);
-  
-  // INFERENCE
-  let predictions: { className: string; probability: number }[] = [];
-  
-  if (model) {
-    const rawPred = model.predict(tensor) as tf.Tensor;
-    const data = await rawPred.data();
-    
-    predictions = Array.from(data)
-      .map((p, i) => ({ className: QUICK_DRAW_CLASSES[i] || "unknown", probability: p }))
-      .sort((a, b) => b.probability - a.probability)
-      .slice(0, 3);
-      
-    tf.dispose([tensor, rawPred]);
-  } else {
-    // MOCK INFERENCE
-    tf.dispose(tensor);
-    
-    // Smart Mock: analyze the overall shape's basic proportions
-    const width = Math.max(...flatPoints.map(p => p.x)) - Math.min(...flatPoints.map(p => p.x));
-    const height = Math.max(...flatPoints.map(p => p.y)) - Math.min(...flatPoints.map(p => p.y));
-    const aspectRatio = width / (height || 1);
-    
-    let primaryClass = "unknown";
-    let secondaryClass = "unknown";
-    
-    if (aspectRatio > 3) {
-      primaryClass = "line";
-      secondaryClass = "snake";
-    } else if (aspectRatio < 0.3) {
-      primaryClass = "sword";
-      secondaryClass = "bat";
-    } else if (Math.abs(aspectRatio - 1) < 0.2) {
-      primaryClass = "sun";
-      secondaryClass = "soccer ball";
-    } else if (aspectRatio > 1.2 && aspectRatio <= 3) {
-      primaryClass = "mountain";
-      secondaryClass = "car";
-    } else {
-      primaryClass = "tree";
-      secondaryClass = "house";
-    }
-    
-    predictions = [
-      { className: primaryClass, probability: 0.75 + (Math.random() * 0.15) },
-      { className: secondaryClass, probability: 0.15 + (Math.random() * 0.1) },
-      { className: "cloud", probability: Math.random() * 0.05 }
-    ];
-  }
+  // Ensure model stub is initialized
+  if (!_cnnReady) await loadModel();
+
+  const canvasArea = canvasWidth * canvasHeight;
+
+  // Run the heuristic + DTW ensemble classifier
+  const result = classifyUIComponent(
+    paths.map((p) => p.map((pt) => ({ x: pt.x, y: pt.y, t: pt.t }))),
+    canvasArea,
+  );
+
+  // Convert allScores to sorted predictions
+  const predictions: UIPrediction[] = result.allScores
+    .filter((s) => s.score > 0.05)
+    .slice(0, 5)
+    .map((s) => ({
+      className: s.type,
+      displayName: UI_COMPONENT_DISPLAY_NAMES[s.type] || s.type,
+      probability: s.score,
+      icon: UI_COMPONENT_ICONS[s.type] || '📦',
+    }));
 
   return predictions;
 }
+
+/**
+ * Quick single-result classification (used in the canvas manager).
+ */
+export async function classifyStrokes(
+  paths: { x: number; y: number; t?: number }[][],
+  canvasWidth = 900,
+  canvasHeight = 600,
+): Promise<UIDetectionResult | null> {
+  const flatPoints = paths.flat();
+  if (flatPoints.length < 5) return null;
+
+  if (!_cnnReady) await loadModel();
+
+  const canvasArea = canvasWidth * canvasHeight;
+  return classifyUIComponent(
+    paths.map((p) => p.map((pt) => ({ x: pt.x, y: pt.y, t: pt.t }))),
+    canvasArea,
+  );
+}
+
+/* ────────────────────── legacy compatibility ────────────────────── */
+
+/**
+ * Legacy function signature for backward compatibility with DrawingBoard.tsx.
+ * Maps to the new predictUIComponent API.
+ */
+export async function predictPattern(
+  paths: { x: number; y: number; t?: number }[][] | { x: number; y: number; t?: number }[],
+): Promise<{ className: string; probability: number }[]> {
+  // Handle single-path input
+  const normalizedPaths = Array.isArray(paths[0]) && Array.isArray((paths[0] as any)[0]?.x !== undefined ? paths : [paths])
+    ? (paths as { x: number; y: number; t?: number }[][])
+    : [paths as { x: number; y: number; t?: number }[]];
+
+  const predictions = await predictUIComponent(normalizedPaths);
+  return predictions.map((p) => ({
+    className: p.className,
+    probability: p.probability,
+  }));
+}
+
+/** Legacy emoji map — now returns UI component icons. */
+export const EMOJI_MAP: Record<string, string> = { ...UI_COMPONENT_ICONS };
+
+/** Legacy class list — now returns UI component labels. */
+export const QUICK_DRAW_CLASSES = [...UI_COMPONENT_LABELS];
