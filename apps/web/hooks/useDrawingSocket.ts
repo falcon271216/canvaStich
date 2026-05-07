@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 
 type ShapeData = {
   [key: string]: any;
@@ -14,16 +14,67 @@ interface DrawEvent {
   fromUserId?: string;
 }
 
+interface CursorMoveEvent {
+  userId: string;
+  userName: string;
+  x: number;
+  y: number;
+  color: string;
+}
+
+interface ChatMessageEvent {
+  id?: number;
+  userId: string;
+  userName: string;
+  content: string;
+  createdAt: string;
+}
+
+interface RoomUser {
+  userId: string;
+  userName: string;
+}
+
 export function useDrawingSocket({
   token,
   roomId,
   onDrawEventAction,
+  onCursorMoveAction,
+  onChatMessageAction,
+  onUserJoinedAction,
+  onUserLeftAction,
+  onRoomUsersAction,
+  onIdentityAction,
 }: {
   token: string;
   roomId: string;
   onDrawEventAction: (event: DrawEvent) => void;
+  onCursorMoveAction?: (event: CursorMoveEvent) => void;
+  onChatMessageAction?: (event: ChatMessageEvent) => void;
+  onUserJoinedAction?: (user: RoomUser) => void;
+  onUserLeftAction?: (data: { userId: string }) => void;
+  onRoomUsersAction?: (users: RoomUser[]) => void;
+  onIdentityAction?: (data: { userId: string; userName: string }) => void;
 }) {
   const wsRef = useRef<WebSocket | null>(null);
+  const callbacksRef = useRef({
+    onDrawEventAction,
+    onCursorMoveAction,
+    onChatMessageAction,
+    onUserJoinedAction,
+    onUserLeftAction,
+    onRoomUsersAction,
+    onIdentityAction,
+  });
+  callbacksRef.current = {
+    onDrawEventAction,
+    onCursorMoveAction,
+    onChatMessageAction,
+    onUserJoinedAction,
+    onUserLeftAction,
+    onRoomUsersAction,
+    onIdentityAction,
+  };
 
   useEffect(() => {
     if (!token || !roomId) return;
@@ -38,8 +89,30 @@ export function useDrawingSocket({
 
     ws.onmessage = (msg) => {
       const data = JSON.parse(msg.data);
-      if (data.type === "draw_event") {
-        onDrawEventAction(data);
+      const cb = callbacksRef.current;
+
+      switch (data.type) {
+        case "draw_event":
+          cb.onDrawEventAction(data);
+          break;
+        case "cursor_move":
+          cb.onCursorMoveAction?.(data);
+          break;
+        case "chat_message":
+          cb.onChatMessageAction?.(data);
+          break;
+        case "user_joined":
+          cb.onUserJoinedAction?.(data);
+          break;
+        case "user_left":
+          cb.onUserLeftAction?.(data);
+          break;
+        case "room_users":
+          cb.onRoomUsersAction?.(data.users);
+          break;
+        case "identity":
+          cb.onIdentityAction?.(data);
+          break;
       }
     };
 
@@ -51,23 +124,44 @@ export function useDrawingSocket({
     };
   }, [token, roomId]);
 
-  const sendDrawEvent = (type: string, data: any) => {
+  const sendDrawEvent = useCallback((type: string, data: any) => {
     const socket = wsRef.current;
-
-    if (!socket || socket.readyState !== WebSocket.OPEN) {
-      console.warn("⚠ WebSocket not ready. State:", socket?.readyState);
-      return;
-    }
-
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
     socket.send(
       JSON.stringify({
         type: "draw_event",
         roomId,
-        shapeType: type, 
+        shapeType: type,
         shapeData: data,
       })
     );
-  };
+  }, [roomId]);
 
-  return { sendDrawEvent };
+  const sendCursorMove = useCallback((x: number, y: number, color?: string) => {
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(
+      JSON.stringify({
+        type: "cursor_move",
+        roomId,
+        x,
+        y,
+        color: color || "#6366f1",
+      })
+    );
+  }, [roomId]);
+
+  const sendChatMessage = useCallback((content: string) => {
+    const socket = wsRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(
+      JSON.stringify({
+        type: "chat_message",
+        roomId,
+        content,
+      })
+    );
+  }, [roomId]);
+
+  return { sendDrawEvent, sendCursorMove, sendChatMessage };
 }

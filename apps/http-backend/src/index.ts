@@ -230,6 +230,32 @@ app.get("/session-analysis/:roomId", async (req: Request, res: Response): Promis
   }
 });
 
+// Get recent chat messages for a room
+app.get("/messages/:roomId", async (req: Request, res: Response): Promise<void> => {
+  const roomId = Number(req.params.roomId);
+  if (isNaN(roomId)) {
+    res.status(400).json({ error: "Invalid room ID" });
+    return;
+  }
+
+  const messages = await prismaClient.message.findMany({
+    where: { roomId },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+    include: { user: { select: { name: true } } },
+  });
+
+  res.status(200).json({
+    messages: messages.map((m) => ({
+      id: m.id,
+      userId: m.userId,
+      userName: m.user.name,
+      content: m.content,
+      createdAt: m.createdAt.toISOString(),
+    })),
+  });
+});
+
 app.get("/metrics", async (_req: Request, res: Response): Promise<void> => {
   res.set("Content-Type", getContentType());
   res.end(await getMetrics());

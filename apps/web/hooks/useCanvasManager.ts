@@ -18,11 +18,15 @@ export function useCanvasManager({
   canvasRef,
   tool,
   shapes,
+  color,
+  strokeWidth,
   onSendDrawEventAction,
 }: {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   tool: ToolType;
   shapes: Shape[];
+  color: string;
+  strokeWidth: number;
   onSendDrawEventAction: (type: ShapeType, data: Record<string, unknown>) => void;
 }) {
   const [start, setStart] = useState<{ x: number; y: number } | null>(null);
@@ -73,8 +77,8 @@ export function useCanvasManager({
       if (!ctx) return;
 
       const path = pencilPath.current;
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       ctx.beginPath();
@@ -99,15 +103,19 @@ export function useCanvasManager({
         ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
         ctx.restore();
       } else if (tool === "rectangle") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeWidth;
         ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
       } else if (tool === "line") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeWidth;
         ctx.beginPath();
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
       }
     }
-  }, [tool]);
+  }, [tool, color, strokeWidth]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (!isDrawing.current || !start) return;
@@ -121,12 +129,13 @@ export function useCanvasManager({
         y1: start.y,
         x2: end.x,
         y2: end.y,
-        stroke: "#000",
+        stroke: color,
+        lineWidth: strokeWidth,
       };
       onSendDrawEventAction(tool, shapeData);
       renderCanvas(); // Clear live preview
     } else if (tool === "pencil") {
-      const pathData = { path: [...pencilPath.current], stroke: "#000" };
+      const pathData = { path: [...pencilPath.current], stroke: color, lineWidth: strokeWidth };
       onSendDrawEventAction(tool, pathData);
 
       if (tool === "pencil" && pencilPath.current.length >= 8) {
@@ -181,11 +190,13 @@ export function useCanvasManager({
     }
 
     setStart(null);
-  }, [tool, start, onSendDrawEventAction]);
+  }, [tool, start, color, strokeWidth, onSendDrawEventAction]);
 
   const drawShape = (ctx: CanvasRenderingContext2D, shape: Shape) => {
     const stroke = (shape.shapeData.stroke as string) || "#000";
+    const lw = (shape.shapeData.lineWidth as number) || 1;
     ctx.strokeStyle = stroke;
+    ctx.lineWidth = lw;
 
     if (shape.shapeType === "completion") {
       const comp = shape.shapeData.completion as {
@@ -253,6 +264,8 @@ export function useCanvasManager({
       const { path } = shape.shapeData as { path: { x: number; y: number }[] };
       if (path.length < 2) return;
       
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
       const first = path[0];
       if (!first) return;
       ctx.moveTo(first.x, first.y);

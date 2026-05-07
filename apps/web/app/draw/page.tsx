@@ -52,7 +52,7 @@ function DrawContent() {
         <nav className="nav">
           <div className="nav-brand">
             <Pen size={18} />
-            <span>Excalidraw</span>
+            <span>SketchUI</span>
           </div>
           <a href="/">Sign in</a>
         </nav>
@@ -75,11 +75,11 @@ function DrawContent() {
       <nav className="nav">
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <a
-            href="/rooms"
+            href="/projects"
             style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
           >
             <ArrowLeft size={15} />
-            Rooms
+            Projects
           </a>
           <div
             style={{
@@ -126,6 +126,9 @@ function DrawContent() {
           </div>
           <div className="draw-status-item">
             Room #{roomParam}
+          </div>
+          <div className="draw-status-item">
+            Ctrl+Z Undo · Ctrl+Y Redo
           </div>
           <div className="draw-status-item">
             DTW + Geometric Heuristics

@@ -6,6 +6,8 @@ import { useCanvasManager, type ShapeType } from "../hooks/useCanvasManager";
 import DrawingToolSelector, { ToolType } from "./DrawingToolSelector";
 import { Cpu, Zap } from "lucide-react";
 import AnalysisPanel from "./AnalysisPanel";
+import ChatPanel, { type ChatMessage } from "./ChatPanel";
+import LiveCursors, { type CursorData } from "./LiveCursors";
 import type {
   UIDetectionResult,
   LayoutNode,
@@ -29,12 +31,37 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [canvasSize, setCanvasSize] = useState({ w: 900, h: 600 });
 
+  /* ── Color & stroke state ── */
+  const [color, setColor] = useState("#000000");
+  const [strokeWidth, setStrokeWidth] = useState(2);
+
+  /* ── Undo/Redo state ── */
+  const undoStackRef = useRef<Shape[][]>([]);
+  const redoStackRef = useRef<Shape[][]>([]);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const isUndoRedoAction = useRef(false);
+
   /* ── SketchUI state ── */
   const [detections, setDetections] = useState<(UIDetectionResult & { id: string })[]>([]);
   const [layoutTree, setLayoutTree] = useState<LayoutNode | null>(null);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
 
-  const { sendDrawEvent } = useDrawingSocket({
+  /* ── Chat state ── */
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatOpen, setChatOpen] = useState(false);
+
+  /* ── Live cursors state ── */
+  const cursorsRef = useRef<Map<string, CursorData>>(new Map());
+  const [cursorsVersion, setCursorsVersion] = useState(0);
+
+  /* ── Identity state ── */
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  /* ── Room users state ── */
+  const [roomUsers, setRoomUsers] = useState<{ userId: string; userName: string }[]>([]);
+
+  const { sendDrawEvent, sendCursorMove, sendChatMessage } = useDrawingSocket({
     token,
     roomId,
     onDrawEventAction: (event) => {
@@ -49,20 +76,102 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         ]);
       }
     },
+    onCursorMoveAction: (data) => {
+      cursorsRef.current.set(data.userId, { ...data, lastUpdate: Date.now() });
+      setCursorsVersion((v) => v + 1);
+    },
+    onChatMessageAction: (msg) => {
+      setChatMessages((prev) => [...prev, msg]);
+    },
+    onUserJoinedAction: (user) => {
+      setRoomUsers((prev) => {
+        if (prev.find((u) => u.userId === user.userId)) return prev;
+        return [...prev, user];
+      });
+    },
+    onUserLeftAction: (data) => {
+      setRoomUsers((prev) => prev.filter((u) => u.userId !== data.userId));
+      cursorsRef.current.delete(data.userId);
+      setCursorsVersion((v) => v + 1);
+    },
+    onRoomUsersAction: (users) => {
+      setRoomUsers(users);
+    },
+    onIdentityAction: (data) => {
+      setMyUserId(data.userId);
+    },
   });
 
+  /* ── Track shape changes for undo/redo ── */
+  const prevShapesRef = useRef<Shape[]>([]);
+  useEffect(() => {
+    if (isUndoRedoAction.current) {
+      isUndoRedoAction.current = false;
+    } else if (shapes !== prevShapesRef.current && prevShapesRef.current.length > 0) {
+      undoStackRef.current.push(prevShapesRef.current);
+      if (undoStackRef.current.length > 50) undoStackRef.current.shift();
+      redoStackRef.current = [];
+    }
+    prevShapesRef.current = shapes;
+    setCanUndo(undoStackRef.current.length > 0);
+    setCanRedo(redoStackRef.current.length > 0);
+  }, [shapes]);
+
+  const handleUndo = useCallback(() => {
+    const prev = undoStackRef.current.pop();
+    if (!prev) return;
+    isUndoRedoAction.current = true;
+    redoStackRef.current.push(shapes);
+    setShapes(prev);
+  }, [shapes]);
+
+  const handleRedo = useCallback(() => {
+    const next = redoStackRef.current.pop();
+    if (!next) return;
+    isUndoRedoAction.current = true;
+    undoStackRef.current.push(shapes);
+    setShapes(next);
+  }, [shapes]);
+
+  /* ── Keyboard shortcuts ── */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [handleUndo, handleRedo]);
+
+  /* ── Load initial drawings ── */
   const apiBase = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
   useEffect(() => {
     fetch(`${apiBase}/drawings/${roomId}`)
       .then((res) => res.json())
       .then((data) => {
         const list = (data.drawings ?? []) as { type?: string; data?: unknown }[];
-        setShapes(
-          list.map((d) => ({
-            shapeType: (d.type ?? "pencil") as ShapeType,
-            shapeData: (d.data ?? {}) as Record<string, unknown>,
-          }))
-        );
+        const loaded = list.map((d) => ({
+          shapeType: (d.type ?? "pencil") as ShapeType,
+          shapeData: (d.data ?? {}) as Record<string, unknown>,
+        }));
+        prevShapesRef.current = loaded;
+        setShapes(loaded);
+      })
+      .catch(() => {});
+  }, [roomId, apiBase]);
+
+  /* ── Load chat history ── */
+  useEffect(() => {
+    fetch(`${apiBase}/messages/${roomId}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.messages) setChatMessages(data.messages);
       })
       .catch(() => {});
   }, [roomId, apiBase]);
@@ -79,6 +188,39 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     window.addEventListener("resize", resize);
     return () => window.removeEventListener("resize", resize);
   }, []);
+
+  /* ── Export canvas as PNG ── */
+  const handleExport = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // Create a temp canvas with white background
+    const tempCanvas = document.createElement("canvas");
+    tempCanvas.width = canvas.width;
+    tempCanvas.height = canvas.height;
+    const tempCtx = tempCanvas.getContext("2d")!;
+    tempCtx.fillStyle = "#ffffff";
+    tempCtx.fillRect(0, 0, tempCanvas.width, tempCanvas.height);
+    tempCtx.drawImage(canvas, 0, 0);
+
+    const link = document.createElement("a");
+    link.download = `sketchui-room-${roomId}.png`;
+    link.href = tempCanvas.toDataURL("image/png");
+    link.click();
+  }, [roomId]);
+
+  /* ── Cursor tracking ── */
+  const cursorThrottleRef = useRef(0);
+  const handleCanvasMouseMove = useCallback((e: React.MouseEvent) => {
+    const now = Date.now();
+    if (now - cursorThrottleRef.current > 50) {
+      cursorThrottleRef.current = now;
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (rect) {
+        sendCursorMove(e.clientX - rect.left, e.clientY - rect.top, color);
+      }
+    }
+  }, [sendCursorMove, color]);
 
   /* ── Run SketchUI pipeline whenever shapes change ── */
   const runDetectionPipeline = useCallback(() => {
@@ -175,8 +317,16 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     canvasRef,
     tool,
     shapes,
+    color,
+    strokeWidth,
     onSendDrawEventAction: sendDrawEvent,
   });
+
+  /* ── Combined mouse move handler (canvas drawing + cursor broadcast) ── */
+  const combinedMouseMove = useCallback((e: React.MouseEvent) => {
+    handleMouseMove(e);
+    handleCanvasMouseMove(e);
+  }, [handleMouseMove, handleCanvasMouseMove]);
 
   /* ── Render canvas + detection overlays ── */
   useEffect(() => {
@@ -189,11 +339,11 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
     for (const det of detections) {
       const bbox = det.boundingBox;
-      const color = getComponentColor(det.type);
+      const bboxColor = getComponentColor(det.type);
       const isSelected = selectedComponentId === det.id;
 
       ctx.save();
-      ctx.strokeStyle = color;
+      ctx.strokeStyle = bboxColor;
       ctx.lineWidth = isSelected ? 2.5 : 1.5;
       ctx.setLineDash(isSelected ? [] : [6, 4]);
       ctx.globalAlpha = isSelected ? 0.9 : 0.5;
@@ -201,11 +351,11 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
       // Label
       ctx.font = "bold 11px Inter, sans-serif";
-      ctx.fillStyle = color;
+      ctx.fillStyle = bboxColor;
       ctx.globalAlpha = isSelected ? 1 : 0.7;
       const label = det.type.replace(/_/g, ' ');
       const textW = ctx.measureText(label).width;
-      ctx.fillStyle = color;
+      ctx.fillStyle = bboxColor;
       ctx.globalAlpha = 0.85;
       // Background for label
       ctx.fillRect(bbox.x - 1, bbox.y - 16, textW + 8, 16);
@@ -218,16 +368,34 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", overflow: "hidden" }}>
       <div className="draw-board" ref={containerRef}>
-        <DrawingToolSelector currentTool={tool} setToolAction={setTool} />
-        <canvas
-          ref={canvasRef}
-          width={canvasSize.w}
-          height={canvasSize.h}
-          className="draw-canvas"
-          onMouseDown={handleMouseDown}
-          onMouseUp={handleMouseUp}
-          onMouseMove={handleMouseMove}
+        <DrawingToolSelector
+          currentTool={tool}
+          setToolAction={setTool}
+          color={color}
+          onColorChange={setColor}
+          strokeWidth={strokeWidth}
+          onStrokeWidthChange={setStrokeWidth}
+          onUndo={handleUndo}
+          onRedo={handleRedo}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          onExport={handleExport}
         />
+
+        <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <canvas
+            ref={canvasRef}
+            width={canvasSize.w}
+            height={canvasSize.h}
+            className="draw-canvas"
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
+            onMouseMove={combinedMouseMove}
+          />
+
+          {/* Live cursors overlay */}
+          <LiveCursors cursors={cursorsRef.current} key={cursorsVersion} />
+        </div>
 
         {/* Live detection indicator */}
         {liveDetection && liveDetection.smoothedConfidence >= 0.45 && (
@@ -311,29 +479,20 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
                 }
               }
             }}
-            style={{
-              position: "absolute",
-              bottom: "20px",
-              left: "50%",
-              transform: "translateX(-50%)",
-              background: "linear-gradient(135deg, #a855f7, #6366f1)",
-              color: "white",
-              border: "none",
-              padding: "0.75rem 1.5rem",
-              borderRadius: "999px",
-              fontWeight: "bold",
-              cursor: "pointer",
-              boxShadow: "0 4px 15px rgba(168, 85, 247, 0.4)",
-              zIndex: 10,
-              fontSize: "1rem",
-              display: "flex",
-              alignItems: "center",
-              gap: "0.5rem"
-            }}
+            className="autodraw-magic-btn"
           >
             ✨ AutoDraw Magic
           </button>
         )}
+
+        {/* Chat panel */}
+        <ChatPanel
+          messages={chatMessages}
+          onSendMessage={sendChatMessage}
+          isOpen={chatOpen}
+          onToggle={() => setChatOpen((o) => !o)}
+          currentUserId={myUserId ?? undefined}
+        />
       </div>
 
       {/* SketchUI 3-Tab Panel */}
