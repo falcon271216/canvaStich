@@ -1,11 +1,12 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Download, Check, Code2, Eye, Loader2, AlertTriangle } from "lucide-react";
+import { Copy, Download, Check, Code2, Eye, Loader2, AlertTriangle, Maximize2 } from "lucide-react";
 import type { LayoutNode, DesignTheme } from "@repo/pattern-detection";
 import type { ComponentAnnotation } from "../AnnotationEditor";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+import FullPreviewModal from "../FullPreviewModal";
 
 /* ────────────────────── types ────────────────────── */
 
@@ -32,6 +33,17 @@ const THEMES: { id: DesignTheme; label: string; color: string }[] = [
   { id: "dark-premium",  label: "Dark Premium",   color: "#D4AF37" },
 ];
 
+/* ────────────────────── progress step labels ────────────────────── */
+
+const PROGRESS_STEPS = [
+  { label: "Analyzing wireframe structure...", progress: 10 },
+  { label: "Detecting page sections...", progress: 25 },
+  { label: "Building layout tree...", progress: 40 },
+  { label: "Generating premium UI with AI...", progress: 60 },
+  { label: "Polishing output...", progress: 85 },
+  { label: "Done! ✨", progress: 100 },
+];
+
 /* ────────────────────── React wrapper for iframe preview ────────────────────── */
 
 function wrapReactInHTML(reactCode: string): string {
@@ -54,7 +66,7 @@ function wrapReactInHTML(reactCode: string): string {
   <script type="text/babel">
     ${reactCode}
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(React.createElement(GeneratedComponent || (() => React.createElement('div', null, 'Component not found'))));
+    root.render(React.createElement(App || (() => null)));
   ${closeScript}
 </body>
 </html>`;
@@ -80,12 +92,27 @@ export default function CodeExportPanel({
   const [errorMsg, setErrorMsg] = useState("");
   const autoGenRef = useRef(false);
 
+  /* ── Progress state (Layer 7) ── */
+  const [progressStep, setProgressStep] = useState(0);
+  const [showProgress, setShowProgress] = useState(false);
+
+  /* ── Full preview modal (Layer 6) ── */
+  const [showFullPreview, setShowFullPreview] = useState(false);
+
   const apiBase = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
 
   const handleGenerate = useCallback(async () => {
     if (!layoutTree) return;
     setState("generating");
     setErrorMsg("");
+    setShowProgress(true);
+    setProgressStep(0);
+
+    // Simulate progress steps
+    const progressTimers: ReturnType<typeof setTimeout>[] = [];
+    progressTimers.push(setTimeout(() => setProgressStep(1), 300));
+    progressTimers.push(setTimeout(() => setProgressStep(2), 700));
+    progressTimers.push(setTimeout(() => setProgressStep(3), 1200));
 
     try {
       const res = await fetch(`${apiBase}/api/generate-premium-ui`, {
@@ -102,12 +129,17 @@ export default function CodeExportPanel({
         }),
       });
 
+      setProgressStep(4);
+
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: "Request failed" }));
         throw new Error(errData.error || `HTTP ${res.status}`);
       }
 
       const { code } = await res.json();
+      setProgressStep(5);
+      await new Promise(r => setTimeout(r, 400));
+
       setGeneratedCode(code);
       setState("preview");
       setActiveTab("preview");
@@ -115,6 +147,10 @@ export default function CodeExportPanel({
     } catch (err: any) {
       setState("error");
       setErrorMsg(err?.message || "Generation failed. Please try again.");
+    } finally {
+      setShowProgress(false);
+      setProgressStep(0);
+      progressTimers.forEach(clearTimeout);
     }
   }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete, annotations]);
 
@@ -176,8 +212,45 @@ export default function CodeExportPanel({
     );
   }
 
+  const currentProgress = PROGRESS_STEPS[progressStep] || PROGRESS_STEPS[0]!;
+
   return (
     <div className="code-panel">
+      {/* ── Progress overlay (Layer 7) ── */}
+      {showProgress && (
+        <div className="autodraw-progress-overlay">
+          <div className="autodraw-progress-card">
+            <div className="autodraw-progress-icon">✨</div>
+            <div className="autodraw-progress-step">
+              {currentProgress.label}
+            </div>
+            <div className="autodraw-progress-bar-bg">
+              <div
+                className="autodraw-progress-bar-fill"
+                style={{ width: `${currentProgress.progress}%` }}
+              />
+            </div>
+            <div className="autodraw-progress-percent">
+              {currentProgress.progress}%
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Full preview modal (Layer 6) ── */}
+      {showFullPreview && generatedCode && (
+        <FullPreviewModal
+          code={generatedCode}
+          framework={framework}
+          componentName={componentName}
+          onClose={() => setShowFullPreview(false)}
+          onRegenerate={() => {
+            setShowFullPreview(false);
+            handleGenerate();
+          }}
+        />
+      )}
+
       {/* Component Name */}
       <div className="code-name-field">
         <label>Component Name</label>
@@ -276,6 +349,14 @@ export default function CodeExportPanel({
               </button>
             </div>
             <div className="premium-output-actions">
+              <button
+                onClick={() => setShowFullPreview(true)}
+                className="code-action-btn"
+                title="Full screen preview"
+              >
+                <Maximize2 size={13} />
+                Expand
+              </button>
               <button onClick={handleDownload} className="code-action-btn" title="Download file">
                 <Download size={13} />
                 {framework === "html" ? ".html" : ".tsx"}

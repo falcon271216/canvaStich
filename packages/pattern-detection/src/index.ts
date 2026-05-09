@@ -143,3 +143,11 @@ export {
   upgradeWithCompositeSymbols,
 } from "./wireframeSymbols.js";
 export type { CompositeSymbolResult } from "./wireframeSymbols.js";
+
+/* ────── page-level semantic analysis ────── */
+export {
+  detectPageSections,
+  detectColumnGrid,
+  serializePageSections,
+} from "./pageAnalysis.js";
+export type { PageSection, GridLayout } from "./pageAnalysis.js";
