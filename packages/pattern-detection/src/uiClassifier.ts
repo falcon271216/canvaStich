@@ -168,10 +168,106 @@ function scoreDTW(normalizedStroke: Point[]): Map<UIComponentType, number> {
   return scores;
 }
 
+/* ────────────────────── geometric override classifier ────────────────────── */
+
+/**
+ * Geometric heuristics override — runs as a fallback when the
+ * DTW+heuristic ensemble confidence is low (< 0.6).
+ *
+ * Uses bounding box geometry (aspect ratio, area, closure) to
+ * produce a reliable classification for rough hand-drawn shapes.
+ * This fixes the "everything is connector" bug that occurs when
+ * the CNN/DTW pipeline doesn't have strong signal.
+ */
+function geometricOverrideClassifier(
+  bboxResult: BoundingBox,
+  features: StrokeFeatureVector,
+  allPoints: Point[],
+): { type: UIComponentType; confidence: number } | null {
+  const { width, height } = bboxResult;
+  const aspectRatio = height > 0 ? width / height : width > 0 ? 100 : 1;
+  const area = width * height;
+  const closureScore = features.closureScore;
+  const pointCount = allPoints.length;
+
+  // Closed rectangle shapes (closureScore high = shape is closed)
+  if (closureScore > 0.5) {
+    // Very wide, thin → navbar
+    if (aspectRatio > 3.0 && height < 80 && width > 200) {
+      return { type: 'navbar', confidence: 0.75 };
+    }
+
+    // Wide rectangle → input field
+    if (aspectRatio > 2.5 && area < 15000) {
+      return { type: 'input_field', confidence: 0.7 };
+    }
+
+    // Medium-wide, small → button
+    if (aspectRatio > 1.5 && area < 8000) {
+      return { type: 'button', confidence: 0.72 };
+    }
+
+    // Larger, moderately wide → card
+    if (aspectRatio > 0.5 && aspectRatio < 2.5 && area > 20000) {
+      return { type: 'card', confidence: 0.68 };
+    }
+
+    // Very large container
+    if (area > 80000) {
+      return { type: 'container_box', confidence: 0.65 };
+    }
+
+    // Square-ish small → checkbox
+    if (aspectRatio > 0.7 && aspectRatio < 1.3 && area < 3000) {
+      return { type: 'checkbox', confidence: 0.6 };
+    }
+  }
+
+  // Open shapes (low closure)
+  if (closureScore < 0.4) {
+    // Nearly horizontal line → divider
+    if (aspectRatio > 8 || height < 8) {
+      return { type: 'divider', confidence: 0.75 };
+    }
+
+    // Tall narrow line → divider (vertical)
+    if (aspectRatio < 0.12) {
+      return { type: 'divider', confidence: 0.65 };
+    }
+
+    // Short open path, few points → arrow connector
+    if (pointCount < 30 && area < 15000) {
+      return { type: 'arrow_connector', confidence: 0.6 };
+    }
+
+    // Open short text-like scribble
+    if (aspectRatio > 2 && area < 5000) {
+      return { type: 'text_label', confidence: 0.55 };
+    }
+  }
+
+  // Large closed shape → container or card
+  if (area > 40000 && closureScore > 0.3) {
+    return { type: 'container_box', confidence: 0.6 };
+  }
+
+  // Medium closed shape → card
+  if (area > 10000 && area <= 40000 && closureScore > 0.3) {
+    return { type: 'card', confidence: 0.55 };
+  }
+
+  return null; // no strong geometric signal
+}
+
 /* ────────────────────── main classifier ────────────────────── */
 
 /**
  * Classify a group of strokes into a UI component type.
+ *
+ * Uses a three-tier approach:
+ *  1. DTW + heuristic ensemble (primary)
+ *  2. Geometric override (fallback when ensemble confidence < 0.6)
+ *  3. Default to container_box (last resort)
  *
  * @param strokes    Array of stroke point arrays.
  * @param canvasArea Canvas width × height for area normalisation.
@@ -224,6 +320,20 @@ export function classifyUIComponent(
 
   const bestLabel = sorted[0]?.[0] ?? 'container_box';
   const bestScore = sorted[0]?.[1] ?? 0;
+
+  // If ensemble confidence is low, try the geometric override classifier
+  if (bestScore < 0.6) {
+    const geoOverride = geometricOverrideClassifier(bboxResult, features, allPoints);
+    if (geoOverride) {
+      return {
+        type: geoOverride.type,
+        confidence: geoOverride.confidence,
+        boundingBox: bboxResult,
+        method: 'heuristic',
+        allScores,
+      };
+    }
+  }
 
   // Determine method
   const hBest = heuristicScores.get(bestLabel) ?? 0;

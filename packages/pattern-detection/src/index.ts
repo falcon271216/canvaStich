@@ -121,3 +121,18 @@ export {
   generateAllFormats,
 } from "./codeGen.js";
 export type { Framework } from "./codeGen.js";
+
+/* ────── premium AI code generation ────── */
+export {
+  serializeLayoutForPrompt,
+  buildPremiumPrompt,
+  countLayoutNodes,
+  stripCodeFences,
+  PREMIUM_SYSTEM_PROMPT,
+  DESIGN_THEMES,
+  VALID_THEMES,
+} from "./premiumCodeGen.js";
+export type {
+  GenerationRequest,
+  DesignTheme,
+} from "./premiumCodeGen.js";

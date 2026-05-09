@@ -5,7 +5,7 @@ import { useDrawingSocket } from "../hooks/useDrawingSocket";
 import { useCanvasManager, type ShapeType } from "../hooks/useCanvasManager";
 import DrawingToolSelector, { ToolType } from "./DrawingToolSelector";
 import { Cpu, Zap } from "lucide-react";
-import AnalysisPanel from "./AnalysisPanel";
+import AnalysisPanel, { type AnalysisPanelHandle } from "./AnalysisPanel";
 import ChatPanel, { type ChatMessage } from "./ChatPanel";
 import LiveCursors, { type CursorData } from "./LiveCursors";
 import type {
@@ -45,6 +45,8 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   /* ── SketchUI state ── */
   const [detections, setDetections] = useState<(UIDetectionResult & { id: string })[]>([]);
   const [layoutTree, setLayoutTree] = useState<LayoutNode | null>(null);
+  const [autoGenerate, setAutoGenerate] = useState(false);
+  const analysisPanelRef = useRef<AnalysisPanelHandle>(null);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
 
   /* ── Chat state ── */
@@ -65,6 +67,11 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     token,
     roomId,
     onDrawEventAction: (event) => {
+      // Skip events that originated from this client — we already added
+      // them to local state in onSendDrawEventAction. Only process
+      // shapes from other users (remote collaboration events).
+      if (event.fromUserId && event.fromUserId === myUserId) return;
+
       if (event.shapeType === "clear_shape") {
         setShapes((prev) => prev.filter(s =>
           JSON.stringify(s.shapeData) !== JSON.stringify(event.shapeData)
@@ -319,7 +326,19 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     shapes,
     color,
     strokeWidth,
-    onSendDrawEventAction: sendDrawEvent,
+    onSendDrawEventAction: (type, data) => {
+      // Always add to local state immediately so detection pipeline works
+      // even when WebSocket is not connected
+      if (type === "clear_shape") {
+        setShapes(prev => prev.filter(s =>
+          JSON.stringify(s.shapeData) !== JSON.stringify(data)
+        ));
+      } else if (type !== "analysis") {
+        setShapes(prev => [...prev, { shapeType: type as ShapeType, shapeData: data }]);
+      }
+      // Also broadcast via WebSocket for collaboration
+      sendDrawEvent(type, data);
+    },
   });
 
   /* ── Combined mouse move handler (canvas drawing + cursor broadcast) ── */
@@ -415,69 +434,22 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           <span>UI components detected via <strong>SketchUI</strong> pipeline</span>
         </div>
 
-        {/* AutoDraw Magic button */}
+        {/* AutoDraw Magic → Premium UI Generation */}
         {shapes.filter(s => s.shapeType === "pencil").length > 0 && (
           <button
-            onClick={async () => {
-              const pencilShapes = shapes.filter(s => s.shapeType === "pencil");
-              if (pencilShapes.length === 0) return;
+            onClick={() => {
+              // 1. Force re-run detection pipeline
+              runDetectionPipeline();
 
-              const { predictPattern, EMOJI_MAP } = await import("../lib/ml");
+              // 2. Show component count
+              const count = detections.length;
+              console.log(`✨ ${count} components detected → generating premium UI...`);
 
-              const getBounds = (paths: any[]) => {
-                const flat = paths.flat();
-                const minX = Math.min(...flat.map((p: any) => p.x));
-                const maxX = Math.max(...flat.map((p: any) => p.x));
-                const minY = Math.min(...flat.map((p: any) => p.y));
-                const maxY = Math.max(...flat.map((p: any) => p.y));
-                return { minX, maxX, minY, maxY, w: maxX - minX, h: maxY - minY };
-              };
+              // 3. Switch to Code tab
+              analysisPanelRef.current?.switchToTab("code");
 
-              let clusters: typeof pencilShapes[] = [];
-              pencilShapes.forEach(shape => {
-                const path = (shape.shapeData as any).path;
-                const bounds = getBounds([path]);
-
-                const intersecting = clusters.filter(cluster => {
-                  const cBounds = getBounds(cluster.map(s => (s.shapeData as any).path));
-                  const padding = 30;
-                  return !(
-                    bounds.minX > cBounds.maxX + padding ||
-                    bounds.maxX < cBounds.minX - padding ||
-                    bounds.minY > cBounds.maxY + padding ||
-                    bounds.maxY < cBounds.minY - padding
-                  );
-                });
-
-                const remaining = clusters.filter(c => !intersecting.includes(c));
-                remaining.push([...intersecting.flat(), shape]);
-                clusters = remaining;
-              });
-
-              for (const cluster of clusters) {
-                const paths = cluster.map(s => (s.shapeData as any).path);
-                const predictions = await predictPattern(paths);
-
-                if (predictions && predictions.length > 0) {
-                  const topClass = predictions[0]!.className;
-                  const emoji = EMOJI_MAP[topClass] || "✨";
-                  const bounds = getBounds(paths);
-
-                  cluster.forEach(s => sendDrawEvent("clear_shape", s.shapeData));
-                  setShapes(prev => prev.filter(s => !cluster.includes(s)));
-
-                  const emojiShape = {
-                    x: bounds.minX,
-                    y: bounds.minY,
-                    w: bounds.w,
-                    h: bounds.h,
-                    text: emoji,
-                  };
-
-                  sendDrawEvent("emoji", emojiShape);
-                  setShapes(prev => [...prev, { shapeType: "emoji" as ShapeType, shapeData: emojiShape }]);
-                }
-              }
+              // 4. Trigger auto-generation
+              setAutoGenerate(true);
             }}
             className="autodraw-magic-btn"
           >
@@ -497,11 +469,16 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
       {/* SketchUI 3-Tab Panel */}
       <AnalysisPanel
+        ref={analysisPanelRef}
         detections={detections}
         layoutTree={layoutTree}
         selectedComponentId={selectedComponentId}
         onSelectComponent={handleSelectComponent}
         onUpdateNodeType={handleUpdateNodeType}
+        canvasWidth={canvasSize.w}
+        canvasHeight={canvasSize.h}
+        autoGenerate={autoGenerate}
+        onGenerationComplete={() => setAutoGenerate(false)}
       />
     </div>
   );

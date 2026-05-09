@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useImperativeHandle, forwardRef } from "react";
 import { Scan, GitBranch, Code2 } from "lucide-react";
 import type { UIDetectionResult, LayoutNode, UIComponentType } from "@repo/pattern-detection";
 import DetectionPanel from "./panels/DetectionPanel";
 import LayoutTreePanel from "./panels/LayoutTreePanel";
 import CodeExportPanel from "./panels/CodeExportPanel";
 
-type TabId = "detection" | "tree" | "code";
+export type TabId = "detection" | "tree" | "code";
 
 interface AnalysisPanelProps {
   detections: UIDetectionResult[];
@@ -15,6 +15,14 @@ interface AnalysisPanelProps {
   selectedComponentId: string | null;
   onSelectComponent: (id: string) => void;
   onUpdateNodeType: (nodeId: string, newType: UIComponentType) => void;
+  canvasWidth?: number;
+  canvasHeight?: number;
+  autoGenerate?: boolean;
+  onGenerationComplete?: () => void;
+}
+
+export interface AnalysisPanelHandle {
+  switchToTab: (tab: TabId) => void;
 }
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
@@ -23,14 +31,26 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: "code",      label: "Code",      icon: <Code2 size={14} /> },
 ];
 
-export default function AnalysisPanel({
-  detections,
-  layoutTree,
-  selectedComponentId,
-  onSelectComponent,
-  onUpdateNodeType,
-}: AnalysisPanelProps) {
+const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(function AnalysisPanel(
+  {
+    detections,
+    layoutTree,
+    selectedComponentId,
+    onSelectComponent,
+    onUpdateNodeType,
+    canvasWidth,
+    canvasHeight,
+    autoGenerate,
+    onGenerationComplete,
+  },
+  ref,
+) {
   const [activeTab, setActiveTab] = useState<TabId>("detection");
+
+  // Expose tab switching to parent (for AutoDraw Magic)
+  useImperativeHandle(ref, () => ({
+    switchToTab: (tab: TabId) => setActiveTab(tab),
+  }));
 
   return (
     <div className="analysis-panel">
@@ -69,9 +89,17 @@ export default function AnalysisPanel({
           />
         )}
         {activeTab === "code" && (
-          <CodeExportPanel layoutTree={layoutTree} />
+          <CodeExportPanel
+            layoutTree={layoutTree}
+            canvasWidth={canvasWidth}
+            canvasHeight={canvasHeight}
+            autoGenerate={autoGenerate}
+            onGenerationComplete={onGenerationComplete}
+          />
         )}
       </div>
     </div>
   );
-}
+});
+
+export default AnalysisPanel;

@@ -14,11 +14,13 @@
     "@repo/pattern-detection": "workspace:*",
     "@repo/ui": "workspace:*",
     "@tensorflow/tfjs": "^4.22.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.14.0",
     "next": "^15.3.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "react-syntax-highlighter": "^16.1.1"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
