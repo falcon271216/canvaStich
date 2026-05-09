@@ -26,6 +26,15 @@ const COMPONENT_COLORS: Record<string, string> = {
   divider:           '#78716c',
   arrow_connector:   '#a855f7',
   container_box:     '#0ea5e9',
+  // v2 wireframe symbols
+  avatar:            '#f472b6',
+  search_bar:        '#34d399',
+  rating:            '#fbbf24',
+  testimonial:       '#a78bfa',
+  list:              '#38bdf8',
+  feature_grid:      '#fb923c',
+  nav_menu:          '#c084fc',
+  notification_bell: '#fcd34d',
 };
 
 export function getComponentColor(type: string): string {

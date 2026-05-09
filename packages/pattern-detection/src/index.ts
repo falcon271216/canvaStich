@@ -136,3 +136,10 @@ export type {
   GenerationRequest,
   DesignTheme,
 } from "./premiumCodeGen.js";
+
+/* ────── wireframe symbol vocabulary (v2) ────── */
+export {
+  detectCompositeSymbol,
+  upgradeWithCompositeSymbols,
+} from "./wireframeSymbols.js";
+export type { CompositeSymbolResult } from "./wireframeSymbols.js";

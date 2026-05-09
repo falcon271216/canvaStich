@@ -22,7 +22,16 @@ export type UIComponentType =
   | 'table'
   | 'divider'
   | 'arrow_connector'
-  | 'container_box';
+  | 'container_box'
+  // ── v2 wireframe symbols ──
+  | 'avatar'
+  | 'search_bar'
+  | 'rating'
+  | 'testimonial'
+  | 'list'
+  | 'feature_grid'
+  | 'nav_menu'
+  | 'notification_bell';
 
 /** Ordered label list (indices match CNN output layer). */
 export const UI_COMPONENT_LABELS: UIComponentType[] = [
@@ -40,9 +49,18 @@ export const UI_COMPONENT_LABELS: UIComponentType[] = [
   'divider',
   'arrow_connector',
   'container_box',
+  // v2 wireframe symbols
+  'avatar',
+  'search_bar',
+  'rating',
+  'testimonial',
+  'list',
+  'feature_grid',
+  'nav_menu',
+  'notification_bell',
 ];
 
-/** Total number of classes (14). */
+/** Total number of classes. */
 export const UI_CLASS_COUNT = UI_COMPONENT_LABELS.length;
 
 /* ────────────────────── display helpers ────────────────────── */
@@ -63,6 +81,14 @@ export const UI_COMPONENT_ICONS: Record<UIComponentType, string> = {
   divider:           '➖',
   arrow_connector:   '➡️',
   container_box:     '📦',
+  avatar:            '👤',
+  search_bar:        '🔍',
+  rating:            '⭐',
+  testimonial:       '💬',
+  list:              '📜',
+  feature_grid:      '⊞',
+  nav_menu:          '☰',
+  notification_bell: '🔔',
 };
 
 /** Human-readable display names. */
@@ -81,6 +107,14 @@ export const UI_COMPONENT_DISPLAY_NAMES: Record<UIComponentType, string> = {
   divider:           'Divider',
   arrow_connector:   'Arrow Connector',
   container_box:     'Container Box',
+  avatar:            'Avatar',
+  search_bar:        'Search Bar',
+  rating:            'Rating',
+  testimonial:       'Testimonial',
+  list:              'List',
+  feature_grid:      'Feature Grid',
+  nav_menu:          'Nav Menu',
+  notification_bell: 'Notification Bell',
 };
 
 /* ────────────────────── classification hints ────────────────────── */
@@ -184,5 +218,54 @@ export const UI_COMPONENT_HINTS: Record<UIComponentType, ComponentHint> = {
     typicalStrokeCount: [1, 2],
     closureLikelihood: 'high',
     typicalSize: 'large',
+  },
+  // ── v2 wireframe symbols ──
+  avatar: {
+    typicalAspectRatio: [0.7, 1.3],
+    typicalStrokeCount: [2, 4],
+    closureLikelihood: 'high',
+    typicalSize: 'small',
+  },
+  search_bar: {
+    typicalAspectRatio: [3, 12],
+    typicalStrokeCount: [2, 4],
+    closureLikelihood: 'high',
+    typicalSize: 'medium',
+  },
+  rating: {
+    typicalAspectRatio: [0.7, 1.5],
+    typicalStrokeCount: [1, 5],
+    closureLikelihood: 'medium',
+    typicalSize: 'small',
+  },
+  testimonial: {
+    typicalAspectRatio: [0.8, 2.5],
+    typicalStrokeCount: [1, 3],
+    closureLikelihood: 'high',
+    typicalSize: 'medium',
+  },
+  list: {
+    typicalAspectRatio: [0.3, 1.5],
+    typicalStrokeCount: [2, 10],
+    closureLikelihood: 'medium',
+    typicalSize: 'large',
+  },
+  feature_grid: {
+    typicalAspectRatio: [0.6, 1.8],
+    typicalStrokeCount: [4, 12],
+    closureLikelihood: 'high',
+    typicalSize: 'large',
+  },
+  nav_menu: {
+    typicalAspectRatio: [1, 5],
+    typicalStrokeCount: [3, 6],
+    closureLikelihood: 'low',
+    typicalSize: 'small',
+  },
+  notification_bell: {
+    typicalAspectRatio: [0.6, 1.4],
+    typicalStrokeCount: [1, 3],
+    closureLikelihood: 'high',
+    typicalSize: 'small',
   },
 };

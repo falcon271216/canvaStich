@@ -19,6 +19,7 @@ import {
   clusterComponents,
   buildContainmentTree,
   updateNodeType,
+  upgradeWithCompositeSymbols,
 } from "@repo/pattern-detection";
 import { getComponentColor } from "./panels/DetectionPanel";
 
@@ -276,8 +277,13 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       };
     });
 
-    // Step 4: Build detection results for the panel
-    const detResults: (UIDetectionResult & { id: string })[] = mergedComponents.map(c => ({
+    // Step 4: Composite wireframe symbol analysis (v2)
+    // Multi-stroke clusters get checked for known wireframe patterns
+    // (rect+X = image, hamburger = nav, stacked rects = list, etc.)
+    const upgradedComponents = upgradeWithCompositeSymbols(mergedComponents);
+
+    // Step 5: Build detection results for the panel
+    const detResults: (UIDetectionResult & { id: string })[] = upgradedComponents.map(c => ({
       id: c.id,
       type: c.type,
       confidence: c.confidence,
@@ -287,9 +293,9 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     }));
     setDetections(detResults);
 
-    // Step 5: Build layout tree
-    if (mergedComponents.length > 0) {
-      const tree = buildContainmentTree(mergedComponents);
+    // Step 6: Build layout tree
+    if (upgradedComponents.length > 0) {
+      const tree = buildContainmentTree(upgradedComponents);
       setLayoutTree(tree);
     } else {
       setLayoutTree(null);
