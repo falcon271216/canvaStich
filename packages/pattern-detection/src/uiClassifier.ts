@@ -26,8 +26,9 @@ export interface UIDetectionResult {
   type: UIComponentType;
   confidence: number;
   boundingBox: BoundingBox;
-  method: 'heuristic' | 'dtw' | 'ensemble';
+  method: 'heuristic' | 'dtw' | 'ensemble' | 'palette';
   allScores: { type: UIComponentType; score: number }[];
+  source?: 'palette' | 'freehand' | 'template';
 }
 
 /* ────────────────────── template generation ────────────────────── */

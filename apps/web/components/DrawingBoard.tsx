@@ -10,6 +10,7 @@ import ChatPanel, { type ChatMessage } from "./ChatPanel";
 import LiveCursors, { type CursorData } from "./LiveCursors";
 import ComponentPalette, { type PaletteDropEvent } from "./ComponentPalette";
 import AnnotationEditor, { type ComponentAnnotation } from "./AnnotationEditor";
+import { TransformOverlay } from "./TransformOverlay";
 import type {
   UIDetectionResult,
   LayoutNode,
@@ -269,6 +270,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         confidence: result.confidence,
         boundingBox: result.boundingBox,
         strokes: [path],
+        source: 'freehand',
       } as DetectedComponent;
     }).filter(Boolean) as DetectedComponent[];
 
@@ -282,13 +284,12 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         confidence: 1.0, // Pre-classified — 100% confidence
         boundingBox: { x: data.x!, y: data.y!, width: data.w!, height: data.h! },
         strokes: [], // No raw strokes — palette stamp
+        source: 'palette',
       } as DetectedComponent;
     }).filter(Boolean) as DetectedComponent[];
 
-    const detected = [...detectedFromPencil, ...detectedFromWireframe];
-
-    // Step 2: Cluster nearby components
-    const groups = clusterComponents(detected, 50);
+    // Step 2: Cluster nearby components (ONLY freehand strokes)
+    const groups = clusterComponents(detectedFromPencil, 50);
 
     // Step 3: Re-classify clustered groups (multi-stroke components)
     const mergedComponents: DetectedComponent[] = groups.map((group, gIdx) => {
@@ -304,6 +305,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         confidence: result.confidence,
         boundingBox: result.boundingBox,
         strokes: allStrokes,
+        source: 'freehand',
       };
     });
 
@@ -311,21 +313,24 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     // Multi-stroke clusters get checked for known wireframe patterns
     // (rect+X = image, hamburger = nav, stacked rects = list, etc.)
     const upgradedComponents = upgradeWithCompositeSymbols(mergedComponents);
+    // Combine freehand ML components with perfect palette components
+    const finalComponents = [...upgradedComponents, ...detectedFromWireframe];
 
     // Step 5: Build detection results for the panel
-    const detResults: (UIDetectionResult & { id: string })[] = upgradedComponents.map(c => ({
+    const detResults: (UIDetectionResult & { id: string })[] = finalComponents.map(c => ({
       id: c.id,
       type: c.type,
       confidence: c.confidence,
       boundingBox: c.boundingBox,
-      method: 'ensemble' as const,
+      method: c.source === 'palette' ? 'palette' as const : 'ensemble' as const,
       allScores: [],
+      source: c.source,
     }));
     setDetections(detResults);
 
     // Step 6: Build layout tree
-    if (upgradedComponents.length > 0) {
-      const tree = buildContainmentTree(upgradedComponents);
+    if (finalComponents.length > 0) {
+      const tree = buildContainmentTree(finalComponents);
       setLayoutTree(tree);
     } else {
       setLayoutTree(null);
@@ -497,6 +502,66 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     setEditingAnnotation(null);
   }, []);
 
+  const handleUpdateBBox = useCallback((id: string, newBBox: { x: number; y: number; width: number; height: number }) => {
+    if (id.startsWith('wf_')) {
+      const idx = parseInt(id.replace('wf_', ''), 10);
+      setShapes(prev => {
+        const wireframes = prev.filter(s => s.shapeType === 'wireframe');
+        const others = prev.filter(s => s.shapeType !== 'wireframe');
+        if (wireframes[idx]) {
+          wireframes[idx] = {
+            ...wireframes[idx]!,
+            shapeData: {
+              ...(wireframes[idx]!.shapeData),
+              x: newBBox.x,
+              y: newBBox.y,
+              w: newBBox.width,
+              h: newBBox.height,
+            }
+          };
+        }
+        return [...others, ...wireframes];
+      });
+    } else {
+      // Freehand scaling (complex) — simply update detections locally to feel responsive
+      setDetections(prev => prev.map(d => d.id === id ? { ...d, boundingBox: newBBox } : d));
+    }
+  }, []);
+
+  const handleDeleteComponent = useCallback((id: string) => {
+    if (id.startsWith('wf_')) {
+      const idx = parseInt(id.replace('wf_', ''), 10);
+      setShapes(prev => {
+        const wireframes = prev.filter(s => s.shapeType === 'wireframe');
+        const others = prev.filter(s => s.shapeType !== 'wireframe');
+        return [...others, ...wireframes.filter((_, i) => i !== idx)];
+      });
+    }
+    setSelectedComponentId(null);
+  }, []);
+
+  const handleDuplicateComponent = useCallback((id: string) => {
+    if (id.startsWith('wf_')) {
+      const idx = parseInt(id.replace('wf_', ''), 10);
+      setShapes(prev => {
+        const wireframes = prev.filter(s => s.shapeType === 'wireframe');
+        const others = prev.filter(s => s.shapeType !== 'wireframe');
+        if (wireframes[idx]) {
+          const dup = {
+            ...wireframes[idx]!,
+            shapeData: {
+              ...(wireframes[idx]!.shapeData),
+              x: (wireframes[idx]!.shapeData as any).x + 20,
+              y: (wireframes[idx]!.shapeData as any).y + 20,
+            }
+          };
+          return [...others, ...wireframes, dup];
+        }
+        return prev;
+      });
+    }
+  }, []);
+
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", overflow: "hidden" }}>
       {/* Component Palette (left sidebar) */}
@@ -535,6 +600,30 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
             onDragLeave={handleCanvasDragLeave}
             onDrop={handleCanvasDrop}
           />
+
+          {/* Transform & Selection Overlay */}
+          {detections.length > 0 && (
+            <TransformOverlay
+              detections={detections as any}
+              selectedId={selectedComponentId}
+              onSelect={setSelectedComponentId}
+              onUpdateBBox={handleUpdateBBox}
+              onOpenAnnotation={(id) => {
+                const det = detections.find(d => d.id === id);
+                if (det) {
+                  setEditingAnnotation({
+                    componentId: id,
+                    componentType: det.type,
+                    position: { x: det.boundingBox.x + det.boundingBox.width, y: det.boundingBox.y },
+                  });
+                }
+              }}
+              onDelete={handleDeleteComponent}
+              onDuplicate={handleDuplicateComponent}
+              canvasWidth={canvasSize.w}
+              canvasHeight={canvasSize.h}
+            />
+          )}
 
           {/* Live cursors overlay */}
           <LiveCursors cursors={cursorsRef.current} key={cursorsVersion} />

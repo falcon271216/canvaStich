@@ -81,6 +81,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
             detections={detections}
             selectedId={selectedComponentId}
             onSelectComponent={onSelectComponent}
+            onUpdateNodeType={onUpdateNodeType}
           />
         )}
         {activeTab === "tree" && (

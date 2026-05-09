@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Download, Check, Code2, Eye, Loader2, AlertTriangle, Maximize2 } from "lucide-react";
+import { Copy, Download, Check, Code2, Eye, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
 import type { LayoutNode, DesignTheme } from "@repo/pattern-detection";
 import type { ComponentAnnotation } from "../AnnotationEditor";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
-import FullPreviewModal from "../FullPreviewModal";
 
 /* ────────────────────── types ────────────────────── */
 
@@ -44,32 +43,101 @@ const PROGRESS_STEPS = [
   { label: "Done! ✨", progress: 100 },
 ];
 
-/* ────────────────────── React wrapper for iframe preview ────────────────────── */
+/* ────────────────────── new tab preview ────────────────────── */
 
-function wrapReactInHTML(reactCode: string): string {
-  // Use string concatenation for closing script tags to avoid
-  // the browser prematurely closing the script element
-  const closeScript = '<' + '/script>';
-  return `<!DOCTYPE html>
-<html>
+function openPreviewInNewTab(htmlCode: string) {
+  const blob = new Blob([htmlCode], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  
+  const previewTab = window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+function openReactPreviewInNewTab(reactCode: string) {
+  const shell = `<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <script src="https://unpkg.com/react@18/umd/react.development.js">${closeScript}
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js">${closeScript}
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js">${closeScript}
-  <script src="https://cdn.tailwindcss.com">${closeScript}
-  <style>body { margin: 0; }</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SketchUI Preview</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { margin: 0; }
+    #preview-bar {
+      position: fixed; top: 0; left: 0; right: 0;
+      height: 44px; background: #111; color: white;
+      display: flex; align-items: center; padding: 0 16px;
+      gap: 12px; z-index: 9999; font-family: sans-serif; font-size: 13px;
+    }
+    #preview-bar button {
+      padding: 4px 12px; border-radius: 6px; border: none;
+      cursor: pointer; font-size: 12px;
+    }
+    #app { margin-top: 44px; }
+    #viewport-container {
+      transition: max-width 0.3s ease;
+      margin: 0 auto;
+    }
+  </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="preview-bar">
+    <span style="color: #888">✨ SketchUI Preview</span>
+    <div style="display:flex; gap:6px; margin-left: 16px">
+      <button onclick="setViewport('100%')" style="background:#333; color:white">🖥 Desktop</button>
+      <button onclick="setViewport('768px')" style="background:#333; color:white">📱 Tablet</button>
+      <button onclick="setViewport('375px')" style="background:#333; color:white">📲 Mobile</button>
+    </div>
+    <div style="margin-left:auto; display:flex; gap:6px">
+      <button onclick="copyCode()" style="background:#333; color:white">Copy Code</button>
+      <button onclick="downloadHTML()" style="background:#2563EB; color:white">⬇ Download .html</button>
+    </div>
+  </div>
+  
+  <div id="app">
+    <div id="viewport-container">
+      <div id="root"></div>
+    </div>
+  </div>
+  
+  <script>
+    function setViewport(width) {
+      document.getElementById('viewport-container').style.maxWidth = width;
+      document.getElementById('app').style.background = width === '100%' ? '' : '#e5e7eb';
+      document.getElementById('app').style.padding = width === '100%' ? '' : '20px';
+    }
+    
+    // We escape the React code to prevent script injection issues
+    const SOURCE_CODE = ${JSON.stringify(reactCode)};
+    
+    function copyCode() {
+      navigator.clipboard.writeText(SOURCE_CODE).then(() => alert('Copied!'));
+    }
+    
+    function downloadHTML() {
+      const a = document.createElement('a');
+      a.href = 'data:text/html,' + encodeURIComponent(document.documentElement.outerHTML);
+      a.download = 'sketchui-component.html';
+      a.click();
+    }
+  </script>
+  
   <script type="text/babel">
     ${reactCode}
+    
     const root = ReactDOM.createRoot(document.getElementById('root'));
     root.render(React.createElement(App || (() => null)));
-  ${closeScript}
+  </script>
 </body>
 </html>`;
+  
+  const blob = new Blob([shell], { type: 'text/html' });
+  const url  = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
 /* ────────────────────── component ────────────────────── */
@@ -144,6 +212,12 @@ export default function CodeExportPanel({
       setState("preview");
       setActiveTab("preview");
       onGenerationComplete?.();
+
+      // Auto-open preview tab immediately
+      setTimeout(() => {
+        if (framework === 'html') openPreviewInNewTab(code);
+        else openReactPreviewInNewTab(code);
+      }, 100);
     } catch (err: any) {
       setState("error");
       setErrorMsg(err?.message || "Generation failed. Please try again.");
@@ -237,19 +311,7 @@ export default function CodeExportPanel({
         </div>
       )}
 
-      {/* ── Full preview modal (Layer 6) ── */}
-      {showFullPreview && generatedCode && (
-        <FullPreviewModal
-          code={generatedCode}
-          framework={framework}
-          componentName={componentName}
-          onClose={() => setShowFullPreview(false)}
-          onRegenerate={() => {
-            setShowFullPreview(false);
-            handleGenerate();
-          }}
-        />
-      )}
+
 
       {/* Component Name */}
       <div className="code-name-field">
@@ -350,12 +412,13 @@ export default function CodeExportPanel({
             </div>
             <div className="premium-output-actions">
               <button
-                onClick={() => setShowFullPreview(true)}
-                className="code-action-btn"
-                title="Full screen preview"
+                onClick={() => {
+                  if (framework === 'html') openPreviewInNewTab(generatedCode);
+                  else openReactPreviewInNewTab(generatedCode);
+                }}
+                className="flex items-center gap-2 px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-500 transition font-medium text-xs"
               >
-                <Maximize2 size={13} />
-                Expand
+                ↗ Open Full Preview
               </button>
               <button onClick={handleDownload} className="code-action-btn" title="Download file">
                 <Download size={13} />
@@ -370,16 +433,9 @@ export default function CodeExportPanel({
 
           {/* Content */}
           {activeTab === "preview" ? (
-            <iframe
-              srcDoc={
-                framework === "html"
-                  ? generatedCode
-                  : wrapReactInHTML(generatedCode)
-              }
-              className="premium-preview-iframe"
-              sandbox="allow-scripts allow-same-origin"
-              title="Premium UI Preview"
-            />
+            <div className="premium-code-view" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', background: '#111' }}>
+              Preview opened in new tab.
+            </div>
           ) : (
             <div className="premium-code-view">
               <SyntaxHighlighter

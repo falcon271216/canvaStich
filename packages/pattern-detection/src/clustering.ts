@@ -18,6 +18,7 @@ export interface DetectedComponent {
   confidence: number;
   boundingBox: BoundingBox;
   strokes: Point[][];
+  source?: 'palette' | 'freehand' | 'template';
 }
 
 export interface ComponentGroup {
