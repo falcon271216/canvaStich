@@ -122,6 +122,7 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
       componentName = "GeneratedComponent",
       canvasWidth,
       canvasHeight,
+      annotations,
     } = req.body;
 
     // Validate required fields
@@ -179,6 +180,19 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
       canvasHeight: canvasHeight ?? 600,
     });
 
+    // Append annotations to the user prompt if present
+    let annotatedUser = user;
+    if (annotations && typeof annotations === "object" && Object.keys(annotations).length > 0) {
+      let annotationBlock = "\n\nUSER ANNOTATIONS (use these to customize the output):\n";
+      for (const [compId, ann] of Object.entries(annotations) as [string, any][]) {
+        annotationBlock += `\n- Component "${compId}":`;
+        if (ann.semanticLabel) annotationBlock += `\n  Label: ${ann.semanticLabel}`;
+        if (ann.contentHint) annotationBlock += `\n  Content: ${ann.contentHint}`;
+        if (ann.styleOverride) annotationBlock += `\n  Style: ${ann.styleOverride}`;
+      }
+      annotatedUser += annotationBlock;
+    }
+
     // Call Gemini generateContent API
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
     const response = await fetch(geminiUrl, {
@@ -193,7 +207,7 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
         contents: [
           {
             role: "user",
-            parts: [{ text: user }],
+            parts: [{ text: annotatedUser }],
           },
         ],
         generationConfig: {

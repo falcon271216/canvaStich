@@ -3,6 +3,7 @@
 import { useState, useImperativeHandle, forwardRef } from "react";
 import { Scan, GitBranch, Code2 } from "lucide-react";
 import type { UIDetectionResult, LayoutNode, UIComponentType } from "@repo/pattern-detection";
+import type { ComponentAnnotation } from "./AnnotationEditor";
 import DetectionPanel from "./panels/DetectionPanel";
 import LayoutTreePanel from "./panels/LayoutTreePanel";
 import CodeExportPanel from "./panels/CodeExportPanel";
@@ -19,6 +20,7 @@ interface AnalysisPanelProps {
   canvasHeight?: number;
   autoGenerate?: boolean;
   onGenerationComplete?: () => void;
+  annotations?: Map<string, ComponentAnnotation>;
 }
 
 export interface AnalysisPanelHandle {
@@ -42,6 +44,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
     canvasHeight,
     autoGenerate,
     onGenerationComplete,
+    annotations,
   },
   ref,
 ) {
@@ -95,6 +98,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
             canvasHeight={canvasHeight}
             autoGenerate={autoGenerate}
             onGenerationComplete={onGenerationComplete}
+            annotations={annotations}
           />
         )}
       </div>

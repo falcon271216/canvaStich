@@ -3,6 +3,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Copy, Download, Check, Code2, Eye, Loader2, AlertTriangle } from "lucide-react";
 import type { LayoutNode, DesignTheme } from "@repo/pattern-detection";
+import type { ComponentAnnotation } from "../AnnotationEditor";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
@@ -17,6 +18,7 @@ interface CodeExportPanelProps {
   canvasHeight?: number;
   autoGenerate?: boolean;
   onGenerationComplete?: () => void;
+  annotations?: Map<string, ComponentAnnotation>;
 }
 
 /* ────────────────────── theme data ────────────────────── */
@@ -66,6 +68,7 @@ export default function CodeExportPanel({
   canvasHeight = 600,
   autoGenerate = false,
   onGenerationComplete,
+  annotations,
 }: CodeExportPanelProps) {
   const [theme, setTheme] = useState<DesignTheme>("modern-saas");
   const [framework, setFramework] = useState<"react" | "html">("html");
@@ -95,6 +98,7 @@ export default function CodeExportPanel({
           componentName,
           canvasWidth,
           canvasHeight,
+          annotations: annotations ? Object.fromEntries(annotations) : undefined,
         }),
       });
 
@@ -112,7 +116,7 @@ export default function CodeExportPanel({
       setState("error");
       setErrorMsg(err?.message || "Generation failed. Please try again.");
     }
-  }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete]);
+  }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete, annotations]);
 
   // Auto-generate on mount when triggered from AutoDraw
   useEffect(() => {

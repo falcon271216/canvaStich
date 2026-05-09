@@ -4,10 +4,11 @@ import { RefObject, useCallback, useRef, useState } from "react";
 import { detectShape, SlidingWindowDetector } from "@repo/pattern-detection";
 import type { Point, LiveDetection } from "@repo/pattern-detection";
 import type { ToolType } from "../components/DrawingToolSelector";
+import { renderWireframeSymbol } from "../components/WireframeRenderers";
 
 const PATTERN_CONFIDENCE_THRESHOLD = 0.75; // Increased from 0.55 to be stricter
 
-export type ShapeType = ToolType | "completion" | "analysis" | "emoji" | "clear_shape";
+export type ShapeType = ToolType | "completion" | "analysis" | "emoji" | "clear_shape" | "wireframe";
 
 interface Shape {
   shapeType: ShapeType;
@@ -288,6 +289,16 @@ export function useCanvasManager({
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillText(text, x + w / 2, y + h / 2);
+    } else if (shape.shapeType === "wireframe") {
+      const data = shape.shapeData as { wireframeType: string; x: number; y: number; w: number; h: number };
+      if (data.wireframeType && data.x != null) {
+        renderWireframeSymbol(ctx, data.wireframeType, {
+          x: data.x,
+          y: data.y,
+          w: data.w,
+          h: data.h,
+        });
+      }
     }
   };
 

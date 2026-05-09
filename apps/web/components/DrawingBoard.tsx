@@ -8,6 +8,8 @@ import { Cpu, Zap } from "lucide-react";
 import AnalysisPanel, { type AnalysisPanelHandle } from "./AnalysisPanel";
 import ChatPanel, { type ChatMessage } from "./ChatPanel";
 import LiveCursors, { type CursorData } from "./LiveCursors";
+import ComponentPalette, { type PaletteDropEvent } from "./ComponentPalette";
+import AnnotationEditor, { type ComponentAnnotation } from "./AnnotationEditor";
 import type {
   UIDetectionResult,
   LayoutNode,
@@ -53,6 +55,17 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   /* ── Chat state ── */
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatOpen, setChatOpen] = useState(false);
+
+  /* ── Palette state ── */
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+
+  /* ── Annotation state ── */
+  const [annotations, setAnnotations] = useState<Map<string, ComponentAnnotation>>(new Map());
+  const [editingAnnotation, setEditingAnnotation] = useState<{
+    componentId: string;
+    componentType: string;
+    position: { x: number; y: number };
+  } | null>(null);
 
   /* ── Live cursors state ── */
   const cursorsRef = useRef<Map<string, CursorData>>(new Map());
@@ -233,7 +246,9 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   /* ── Run SketchUI pipeline whenever shapes change ── */
   const runDetectionPipeline = useCallback(() => {
     const pencilShapes = shapes.filter(s => s.shapeType === "pencil");
-    if (pencilShapes.length === 0) {
+    const wireframeShapes = shapes.filter(s => s.shapeType === "wireframe");
+
+    if (pencilShapes.length === 0 && wireframeShapes.length === 0) {
       setDetections([]);
       setLayoutTree(null);
       return;
@@ -241,8 +256,8 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
     const canvasArea = canvasSize.w * canvasSize.h;
 
-    // Step 1: Classify each pencil stroke independently
-    const detected: DetectedComponent[] = pencilShapes.map((s, idx) => {
+    // Step 1a: Classify each pencil stroke independently
+    const detectedFromPencil: DetectedComponent[] = pencilShapes.map((s, idx) => {
       const path = (s.shapeData as any).path as { x: number; y: number; t?: number }[];
       if (!path || path.length < 5) {
         return null;
@@ -256,6 +271,21 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         strokes: [path],
       } as DetectedComponent;
     }).filter(Boolean) as DetectedComponent[];
+
+    // Step 1b: Add wireframe (palette-dropped) shapes as pre-classified components
+    const detectedFromWireframe: DetectedComponent[] = wireframeShapes.map((s, idx) => {
+      const data = s.shapeData as { wireframeType?: string; x?: number; y?: number; w?: number; h?: number };
+      if (!data.wireframeType || data.x == null) return null;
+      return {
+        id: `wf_${idx}`,
+        type: data.wireframeType as UIComponentType,
+        confidence: 1.0, // Pre-classified — 100% confidence
+        boundingBox: { x: data.x!, y: data.y!, width: data.w!, height: data.h! },
+        strokes: [], // No raw strokes — palette stamp
+      } as DetectedComponent;
+    }).filter(Boolean) as DetectedComponent[];
+
+    const detected = [...detectedFromPencil, ...detectedFromWireframe];
 
     // Step 2: Cluster nearby components
     const groups = clusterComponents(detected, 50);
@@ -390,8 +420,92 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     }
   }, [renderCanvas, shapes, detections, selectedComponentId]);
 
+  /* ── Palette drop handler ── */
+  const handlePaletteDrop = useCallback((event: PaletteDropEvent) => {
+    const { item, x, y } = event;
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+
+    const canvasX = x - rect.left;
+    const canvasY = y - rect.top;
+
+    // Create a wireframe shape
+    const wireframeData: Record<string, unknown> = {
+      wireframeType: item.id,
+      x: canvasX - item.defaultSize.w / 2,
+      y: canvasY - item.defaultSize.h / 2,
+      w: item.defaultSize.w,
+      h: item.defaultSize.h,
+      stroke: "#64748b",
+      lineWidth: 1.5,
+    };
+
+    // Add to local state (as a 'wireframe' shape) AND as pencil-equivalent for detection
+    setShapes(prev => [...prev, { shapeType: "wireframe" as ShapeType, shapeData: wireframeData }]);
+    sendDrawEvent("wireframe" as ShapeType, wireframeData);
+  }, [sendDrawEvent]);
+
+  /* ── Canvas drag-over / drop handlers ── */
+  const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    canvasRef.current?.classList.add("drag-over");
+  }, []);
+
+  const handleCanvasDragLeave = useCallback(() => {
+    canvasRef.current?.classList.remove("drag-over");
+  }, []);
+
+  const handleCanvasDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    canvasRef.current?.classList.remove("drag-over");
+    try {
+      const itemData = JSON.parse(e.dataTransfer.getData("text/plain"));
+      if (itemData?.id && itemData?.defaultSize) {
+        handlePaletteDrop({ item: itemData, x: e.clientX, y: e.clientY });
+      }
+    } catch {}
+  }, [handlePaletteDrop]);
+
+  /* ── Double-click to annotate ── */
+  const handleCanvasDoubleClick = useCallback((e: React.MouseEvent) => {
+    const rect = canvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+
+    // Find which detected component was double-clicked
+    for (const det of detections) {
+      const bb = det.boundingBox;
+      if (cx >= bb.x && cx <= bb.x + bb.width && cy >= bb.y && cy <= bb.y + bb.height) {
+        setEditingAnnotation({
+          componentId: det.id,
+          componentType: det.type,
+          position: { x: e.clientX, y: e.clientY },
+        });
+        return;
+      }
+    }
+  }, [detections]);
+
+  const handleSaveAnnotation = useCallback((annotation: ComponentAnnotation) => {
+    setAnnotations(prev => {
+      const next = new Map(prev);
+      next.set(annotation.componentId, annotation);
+      return next;
+    });
+    setEditingAnnotation(null);
+  }, []);
+
   return (
     <div style={{ display: "flex", width: "100%", height: "100%", overflow: "hidden" }}>
+      {/* Component Palette (left sidebar) */}
+      <ComponentPalette
+        onDrop={handlePaletteDrop}
+        collapsed={paletteCollapsed}
+        onToggleCollapse={() => setPaletteCollapsed(prev => !prev)}
+      />
+
       <div className="draw-board" ref={containerRef}>
         <DrawingToolSelector
           currentTool={tool}
@@ -416,6 +530,10 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
             onMouseDown={handleMouseDown}
             onMouseUp={handleMouseUp}
             onMouseMove={combinedMouseMove}
+            onDoubleClick={handleCanvasDoubleClick}
+            onDragOver={handleCanvasDragOver}
+            onDragLeave={handleCanvasDragLeave}
+            onDrop={handleCanvasDrop}
           />
 
           {/* Live cursors overlay */}
@@ -441,7 +559,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         </div>
 
         {/* AutoDraw Magic → Premium UI Generation */}
-        {shapes.filter(s => s.shapeType === "pencil").length > 0 && (
+        {shapes.filter(s => s.shapeType === "pencil" || s.shapeType === "wireframe").length > 0 && (
           <button
             onClick={() => {
               // 1. Force re-run detection pipeline
@@ -471,6 +589,17 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           onToggle={() => setChatOpen((o) => !o)}
           currentUserId={myUserId ?? undefined}
         />
+        {/* Annotation editor overlay */}
+        {editingAnnotation && (
+          <AnnotationEditor
+            componentId={editingAnnotation.componentId}
+            componentType={editingAnnotation.componentType}
+            position={editingAnnotation.position}
+            annotation={annotations.get(editingAnnotation.componentId) || null}
+            onSave={handleSaveAnnotation}
+            onClose={() => setEditingAnnotation(null)}
+          />
+        )}
       </div>
 
       {/* SketchUI 3-Tab Panel */}
@@ -485,6 +614,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         canvasHeight={canvasSize.h}
         autoGenerate={autoGenerate}
         onGenerationComplete={() => setAutoGenerate(false)}
+        annotations={annotations}
       />
     </div>
   );
