@@ -504,23 +504,26 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   const handleUpdateBBox = useCallback((id: string, newBBox: { x: number; y: number; width: number; height: number }) => {
     if (id.startsWith('wf_')) {
-      const idx = parseInt(id.replace('wf_', ''), 10);
+      const wfIdx = parseInt(id.replace('wf_', ''), 10);
       setShapes(prev => {
-        const wireframes = prev.filter(s => s.shapeType === 'wireframe');
-        const others = prev.filter(s => s.shapeType !== 'wireframe');
-        if (wireframes[idx]) {
-          wireframes[idx] = {
-            ...wireframes[idx]!,
-            shapeData: {
-              ...(wireframes[idx]!.shapeData),
-              x: newBBox.x,
-              y: newBBox.y,
-              w: newBBox.width,
-              h: newBBox.height,
-            }
-          };
-        }
-        return [...others, ...wireframes];
+        // Find the Nth wireframe in the original array order (0-indexed)
+        let wfCount = 0;
+        return prev.map(s => {
+          if (s.shapeType !== 'wireframe') return s;
+          if (wfCount++ === wfIdx) {
+            return {
+              ...s,
+              shapeData: {
+                ...s.shapeData,
+                x: newBBox.x,
+                y: newBBox.y,
+                w: newBBox.width,
+                h: newBBox.height,
+              }
+            };
+          }
+          return s;
+        });
       });
     } else {
       // Freehand scaling (complex) — simply update detections locally to feel responsive
@@ -530,11 +533,13 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   const handleDeleteComponent = useCallback((id: string) => {
     if (id.startsWith('wf_')) {
-      const idx = parseInt(id.replace('wf_', ''), 10);
+      const wfIdx = parseInt(id.replace('wf_', ''), 10);
       setShapes(prev => {
-        const wireframes = prev.filter(s => s.shapeType === 'wireframe');
-        const others = prev.filter(s => s.shapeType !== 'wireframe');
-        return [...others, ...wireframes.filter((_, i) => i !== idx)];
+        let wfCount = 0;
+        return prev.filter(s => {
+          if (s.shapeType !== 'wireframe') return true;
+          return wfCount++ !== wfIdx;
+        });
       });
     }
     setSelectedComponentId(null);
@@ -542,22 +547,26 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   const handleDuplicateComponent = useCallback((id: string) => {
     if (id.startsWith('wf_')) {
-      const idx = parseInt(id.replace('wf_', ''), 10);
+      const wfIdx = parseInt(id.replace('wf_', ''), 10);
       setShapes(prev => {
-        const wireframes = prev.filter(s => s.shapeType === 'wireframe');
-        const others = prev.filter(s => s.shapeType !== 'wireframe');
-        if (wireframes[idx]) {
-          const dup = {
-            ...wireframes[idx]!,
-            shapeData: {
-              ...(wireframes[idx]!.shapeData),
-              x: (wireframes[idx]!.shapeData as any).x + 20,
-              y: (wireframes[idx]!.shapeData as any).y + 20,
+        let wfCount = 0;
+        let duplicatedShape: Shape | null = null;
+        for (const s of prev) {
+          if (s.shapeType === 'wireframe') {
+            if (wfCount++ === wfIdx) {
+              duplicatedShape = {
+                ...s,
+                shapeData: {
+                  ...s.shapeData,
+                  x: (s.shapeData as any).x + 20,
+                  y: (s.shapeData as any).y + 20,
+                }
+              };
+              break;
             }
-          };
-          return [...others, ...wireframes, dup];
+          }
         }
-        return prev;
+        return duplicatedShape ? [...prev, duplicatedShape] : prev;
       });
     }
   }, []);
@@ -592,7 +601,11 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
             width={canvasSize.w}
             height={canvasSize.h}
             className="draw-canvas"
-            onMouseDown={handleMouseDown}
+            onMouseDown={(e) => {
+              // Deselect any selected component when the user clicks on the canvas to draw
+              if (selectedComponentId) setSelectedComponentId(null);
+              handleMouseDown(e);
+            }}
             onMouseUp={handleMouseUp}
             onMouseMove={combinedMouseMove}
             onDoubleClick={handleCanvasDoubleClick}

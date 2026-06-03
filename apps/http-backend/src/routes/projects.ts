@@ -142,7 +142,7 @@ router.get("/projects", middleware, async (req: Request, res: Response): Promise
       where,
       include: {
         workspace: { select: { name: true, plan: true } },
-        room: { select: { name: true, slug: true } },
+        room: { select: { id: true, name: true, slug: true } },
       },
       orderBy: { updatedAt: "desc" },
     });
@@ -165,7 +165,7 @@ router.get("/projects/:id", middleware, async (req: Request, res: Response): Pro
       },
       include: {
         workspace: { select: { name: true, plan: true } },
-        room: { select: { name: true, slug: true } },
+        room: { select: { id: true, name: true, slug: true } },
       },
     });
 

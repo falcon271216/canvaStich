@@ -168,7 +168,7 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
       return;
     }
 
-    const model = "gemini-2.0-flash";
+    const model = "gemini-3.5-flash";
 
     // Build prompts
     const { system, user } = buildPremiumPrompt({
@@ -211,8 +211,8 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
           },
         ],
         generationConfig: {
-          maxOutputTokens: 8000,
-          temperature: 0.7,
+          maxOutputTokens: 16000,
+          temperature: 0.4,
         },
       }),
     });
@@ -247,8 +247,56 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
       return;
     }
 
-    // Clean up any markdown fences Claude might have added
-    const code = stripCodeFences(rawCode);
+    // Check if response was truncated (finish_reason)
+    const finishReason = (data as any).candidates?.[0]?.finishReason;
+    const wasTruncated = finishReason === "MAX_TOKENS" || finishReason === "STOP" && !rawCode.trim().endsWith(">") && !rawCode.trim().endsWith("}") && !rawCode.trim().endsWith(";");
+
+    // Clean up any markdown fences
+    let code = stripCodeFences(rawCode);
+
+    // Auto-repair truncated HTML: close any unclosed tags
+    if (framework === "html" && !code.includes("</html>")) {
+      // Find unclosed tags and close them
+      const openTags: string[] = [];
+      const tagRegex = /<\/?([a-zA-Z][a-zA-Z0-9]*)(?:\s[^>]*)?\/?>/g;
+      let m;
+      while ((m = tagRegex.exec(code)) !== null) {
+        const fullMatch = m[0]!;
+        const tagName = m[1]!.toLowerCase();
+        const selfClosing = ["meta", "link", "br", "hr", "img", "input", "area", "base", "col", "embed", "source", "track", "wbr"];
+        if (selfClosing.includes(tagName) || fullMatch.endsWith("/>")) continue;
+        if (fullMatch.startsWith("</")) {
+          const idx = openTags.lastIndexOf(tagName);
+          if (idx !== -1) openTags.splice(idx, 1);
+        } else {
+          openTags.push(tagName);
+        }
+      }
+      // Close tags in reverse order
+      for (let i = openTags.length - 1; i >= 0; i--) {
+        code += `</${openTags[i]}>`;
+      }
+    }
+
+    // Auto-repair truncated React: close unclosed JSX
+    if (framework === "react") {
+      // Strip any trailing incomplete JSX tag
+      const lastOpenBracket = code.lastIndexOf("<");
+      const lastCloseBracket = code.lastIndexOf(">");
+      if (lastOpenBracket > lastCloseBracket) {
+        // There's an unclosed tag at the end — remove it
+        code = code.slice(0, lastOpenBracket).trimEnd();
+      }
+
+      // Ensure the component function is properly closed
+      const openBraces = (code.match(/\{/g) || []).length;
+      const closeBraces = (code.match(/\}/g) || []).length;
+      const missing = openBraces - closeBraces;
+      if (missing > 0) {
+        // Add closing JSX fragments and braces
+        code += "\n" + "}".repeat(missing);
+      }
+    }
 
     // Cache the result
     cacheSet(cacheKey, code);

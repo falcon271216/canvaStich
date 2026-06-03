@@ -100,24 +100,40 @@ app.post("/room", middleware, async (req: Request, res: Response): Promise<void>
   // @ts-ignore: Added by middleware
   const userId: string = req.userId;
 
-  const existing = await prismaClient.room.findUnique({
-    where: { slug: parsed.data.name },
-  });
+  // Generate a unique slug: base name + random suffix to avoid conflicts
+  const baseName = parsed.data.name;
+  let slug = baseName;
+  let attempts = 0;
 
-  if (existing) {
-    res.status(409).json({ error: "Room already exists" });
-    return;
+  while (attempts < 5) {
+    const existing = await prismaClient.room.findUnique({
+      where: { slug },
+    });
+    if (!existing) break;
+    // Append a short random suffix to make it unique
+    slug = `${baseName}-${Math.random().toString(36).substring(2, 7)}`;
+    attempts++;
   }
 
-  const room = await prismaClient.room.create({
-    data: {
-      name: parsed.data.name,
-      slug: parsed.data.name,
-      adminId: userId,
-    },
-  });
+  try {
+    const room = await prismaClient.room.create({
+      data: {
+        name: baseName,
+        slug,
+        adminId: userId,
+      },
+    });
 
-  res.status(201).json({ roomId: room.id });
+    res.status(201).json({ roomId: room.id });
+  } catch (err: any) {
+    // Handle race-condition unique constraint violation
+    if (err?.code === "P2002") {
+      res.status(409).json({ error: "Room slug conflict, please try again" });
+      return;
+    }
+    console.error("Create room error:", err);
+    res.status(500).json({ error: "Failed to create room" });
+  }
 });
 
 // Get drawings by room

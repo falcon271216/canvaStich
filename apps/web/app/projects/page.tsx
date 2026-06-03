@@ -23,7 +23,7 @@ interface Project {
   createdAt: string;
   updatedAt: string;
   workspace: { name: string; plan: string };
-  room: { name: string; slug: string } | null;
+  room: { id: number; name: string; slug: string } | null;
 }
 
 interface Workspace {
@@ -42,6 +42,7 @@ export default function ProjectsPage() {
   const [creating, setCreating] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     const t = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -58,90 +59,145 @@ export default function ProjectsPage() {
     [token],
   );
 
+  const fetchOrCreateWorkspace = useCallback(async (): Promise<Workspace | null> => {
+    try {
+      const wsRes = await fetch(`${API}/api/workspaces`, { headers: headers() });
+      const wsData = await wsRes.json();
+
+      if (!wsRes.ok) {
+        const msg =
+          typeof wsData.error === "string"
+            ? wsData.error
+            : "Failed to load workspace. Try signing in again.";
+        setLoadError(msg);
+        return null;
+      }
+
+      let ws: Workspace[] = wsData.workspaces ?? [];
+
+      if (ws.length === 0) {
+        const createRes = await fetch(`${API}/api/workspaces`, {
+          method: "POST",
+          headers: headers(),
+          body: JSON.stringify({ name: "My Workspace" }),
+        });
+        const createData = await createRes.json();
+        if (!createRes.ok || !createData.workspace) {
+          const msg =
+            typeof createData.error === "string"
+              ? createData.error
+              : "Failed to create workspace.";
+          setLoadError(msg);
+          return null;
+        }
+        ws = [{ ...createData.workspace, _count: { projects: 0 } }];
+      }
+
+      setWorkspaces(ws);
+      setLoadError("");
+      return ws[0] ?? null;
+    } catch (err) {
+      console.error("fetchOrCreateWorkspace error:", err);
+      setLoadError("Could not reach the server. Is the backend running on port 4000?");
+      return null;
+    }
+  }, [headers]);
+
   // Load workspaces + projects
   useEffect(() => {
     if (!token) return;
 
     const load = async () => {
       setLoading(true);
+      setLoadError("");
       try {
-        // Get or create workspace
-        const wsRes = await fetch(`${API}/api/workspaces`, { headers: headers() });
-        const wsData = await wsRes.json();
-        let ws = wsData.workspaces ?? [];
+        const workspace = await fetchOrCreateWorkspace();
 
-        if (ws.length === 0) {
-          // Auto-create default workspace
-          const createRes = await fetch(`${API}/api/workspaces`, {
-            method: "POST",
-            headers: headers(),
-            body: JSON.stringify({ name: "My Workspace" }),
-          });
-          const createData = await createRes.json();
-          if (createData.workspace) {
-            ws = [{ ...createData.workspace, _count: { projects: 0 } }];
-          }
+        if (!workspace) {
+          setProjects([]);
+          return;
         }
-        setWorkspaces(ws);
 
-        // Get projects
         const projRes = await fetch(`${API}/api/projects`, { headers: headers() });
         const projData = await projRes.json();
+        if (!projRes.ok) {
+          setLoadError(
+            typeof projData.error === "string"
+              ? projData.error
+              : "Failed to load projects.",
+          );
+          setProjects([]);
+          return;
+        }
         setProjects(projData.projects ?? []);
       } catch (err) {
         console.error("Failed to load data:", err);
+        setLoadError("Failed to load projects. Please refresh the page.");
       } finally {
         setLoading(false);
       }
     };
 
     load();
-  }, [token, headers]);
+  }, [token, headers, fetchOrCreateWorkspace]);
 
   const handleCreateProject = async () => {
-    if (!newProjectName.trim() || !workspaces[0]) return;
+    const name = newProjectName.trim();
+    if (!name) return;
+
     setCreating(true);
+    setLoadError("");
 
     try {
-      // Create a room first
+      const workspace = workspaces[0] ?? (await fetchOrCreateWorkspace());
+      if (!workspace) {
+        alert("No workspace available. Check the error on this page or sign in again.");
+        return;
+      }
+
       const roomRes = await fetch(`${API}/room`, {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify({ name: newProjectName.trim() }),
+        body: JSON.stringify({ name }),
       });
       const roomData = await roomRes.json();
+
+      if (!roomRes.ok) {
+        alert(roomData.error || "Failed to create room");
+        return;
+      }
+
       const roomId = roomData.roomId ?? roomData.room?.id;
 
-      // Create the project
+      if (roomId == null) {
+        alert("Room was created but no ID was returned. Please try again.");
+        return;
+      }
+
       const res = await fetch(`${API}/api/projects`, {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({
-          workspaceId: workspaces[0].id,
-          name: newProjectName.trim(),
-          roomId: roomId ?? undefined,
+          workspaceId: workspace.id,
+          name,
+          roomId,
         }),
       });
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || "Failed to create project");
+        const errMsg =
+          typeof data.error === "string"
+            ? data.error
+            : JSON.stringify(data.error ?? "Failed to create project");
+        alert(errMsg);
         return;
       }
 
-      // Redirect to the drawing canvas
-      if (roomId) {
-        window.location.href = `/draw?room=${roomId}&token=${encodeURIComponent(token!)}`;
-      } else {
-        // Reload projects list
-        setShowCreate(false);
-        setNewProjectName("");
-        const projRes = await fetch(`${API}/api/projects`, { headers: headers() });
-        const projData = await projRes.json();
-        setProjects(projData.projects ?? []);
-      }
+      window.location.href = `/draw?room=${roomId}&token=${encodeURIComponent(token!)}`;
     } catch (err) {
       console.error("Create project error:", err);
+      alert("Something went wrong. Please check your connection and try again.");
     } finally {
       setCreating(false);
     }
@@ -162,7 +218,7 @@ export default function ProjectsPage() {
 
   const handleOpenProject = (project: Project) => {
     if (project.room) {
-      window.location.href = `/draw?room=${project.room.slug}&token=${encodeURIComponent(token!)}`;
+      window.location.href = `/draw?room=${project.room.id}&token=${encodeURIComponent(token!)}`;
     }
   };
 
@@ -208,6 +264,12 @@ export default function ProjectsPage() {
       </nav>
 
       <div className="projects-page fade-in">
+        {loadError && (
+          <div className="auth-error" style={{ marginBottom: "1rem" }}>
+            {loadError}
+          </div>
+        )}
+
         <div className="projects-header">
           <div>
             <h1 className="page-title">Your Projects</h1>
@@ -245,11 +307,14 @@ export default function ProjectsPage() {
                 />
               </div>
               <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-                <button onClick={() => setShowCreate(false)}>Cancel</button>
+                <button type="button" onClick={() => setShowCreate(false)}>
+                  Cancel
+                </button>
                 <button
+                  type="button"
                   className="primary"
                   onClick={handleCreateProject}
-                  disabled={creating || !newProjectName.trim()}
+                  disabled={creating || loading || !newProjectName.trim()}
                 >
                   {creating ? (
                     <>

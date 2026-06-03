@@ -50,22 +50,44 @@ function openPreviewInNewTab(htmlCode: string) {
   const url = URL.createObjectURL(blob);
   
   const previewTab = window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  // Don't revoke too early — give fonts and external resources time to load
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 function openReactPreviewInNewTab(reactCode: string) {
+  // Strip import/export statements that don't work in browser Babel standalone
+  let cleanCode = reactCode
+    // Remove import lines (import React, import { useState }, etc.)
+    .replace(/^import\s+.*?['";]\s*$/gm, '')
+    // Remove export default at the end
+    .replace(/^export\s+default\s+\w+;?\s*$/gm, '')
+    // Convert "export default function X" to "function X"
+    .replace(/^export\s+default\s+function\s+/gm, 'function ')
+    // Convert "export function X" to "function X"
+    .replace(/^export\s+function\s+/gm, 'function ')
+    // Convert "export const X" to "const X"
+    .replace(/^export\s+const\s+/gm, 'const ')
+    // Remove TypeScript type annotations: `: Type` after params/variables
+    .replace(/:\s*(?:React\.)?(?:FC|FunctionComponent|JSX\.Element|ReactNode|string|number|boolean|any)\b/g, '')
+    // Remove TypeScript interface/type blocks
+    .replace(/^(?:interface|type)\s+\w+\s*\{[^}]*\}\s*;?\s*$/gm, '')
+    // Remove 'as' type assertions
+    .replace(/\s+as\s+\w+/g, '')
+    .trim();
+
+  // Detect the component name from the code
+  // Look for: function ComponentName( or const ComponentName = 
+  const funcMatch = cleanCode.match(/^(?:function|const)\s+([A-Z][A-Za-z0-9]*)/m);
+  const componentName = funcMatch ? funcMatch[1] : 'App';
+
   const shell = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SketchUI Preview</title>
-  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
-  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { margin: 0; }
+    body { margin: 0; font-family: system-ui, sans-serif; }
     #preview-bar {
       position: fixed; top: 0; left: 0; right: 0;
       height: 44px; background: #111; color: white;
@@ -80,6 +102,15 @@ function openReactPreviewInNewTab(reactCode: string) {
     #viewport-container {
       transition: max-width 0.3s ease;
       margin: 0 auto;
+    }
+    #loading-msg {
+      display: flex; align-items: center; justify-content: center;
+      height: calc(100vh - 44px); color: #666; font-size: 14px;
+    }
+    #error-msg {
+      display: none; padding: 24px; margin: 20px;
+      background: #1a0000; border: 1px solid #dc2626; border-radius: 8px;
+      color: #fca5a5; font-size: 13px; white-space: pre-wrap; font-family: monospace;
     }
   </style>
 </head>
@@ -99,9 +130,10 @@ function openReactPreviewInNewTab(reactCode: string) {
   
   <div id="app">
     <div id="viewport-container">
-      <div id="root"></div>
+      <div id="root"><div id="loading-msg">Loading preview...</div></div>
     </div>
   </div>
+  <div id="error-msg"></div>
   
   <script>
     function setViewport(width) {
@@ -110,26 +142,65 @@ function openReactPreviewInNewTab(reactCode: string) {
       document.getElementById('app').style.padding = width === '100%' ? '' : '20px';
     }
     
-    // We escape the React code to prevent script injection issues
     const SOURCE_CODE = ${JSON.stringify(reactCode)};
     
     function copyCode() {
-      navigator.clipboard.writeText(SOURCE_CODE).then(() => alert('Copied!'));
+      navigator.clipboard.writeText(SOURCE_CODE).then(function() { alert('Copied!'); });
     }
     
     function downloadHTML() {
-      const a = document.createElement('a');
+      var a = document.createElement('a');
       a.href = 'data:text/html,' + encodeURIComponent(document.documentElement.outerHTML);
       a.download = 'sketchui-component.html';
       a.click();
     }
-  </script>
-  
-  <script type="text/babel">
-    ${reactCode}
-    
-    const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(React.createElement(App || (() => null)));
+
+    function showError(msg) {
+      var el = document.getElementById('error-msg');
+      el.textContent = 'Preview Error:\\n\\n' + msg;
+      el.style.display = 'block';
+      var loading = document.getElementById('loading-msg');
+      if (loading) loading.remove();
+    }
+
+    // Load scripts sequentially to ensure proper ordering
+    function loadScript(src) {
+      return new Promise(function(resolve, reject) {
+        var s = document.createElement('script');
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = function() { reject(new Error('Failed to load: ' + src)); };
+        document.head.appendChild(s);
+      });
+    }
+
+    async function bootstrap() {
+      try {
+        await loadScript('https://unpkg.com/react@18/umd/react.development.js');
+        await loadScript('https://unpkg.com/react-dom@18/umd/react-dom.development.js');
+        await loadScript('https://unpkg.com/@babel/standalone/babel.min.js');
+        await loadScript('https://cdn.tailwindcss.com');
+        
+        // Now transform and execute the React code
+        var code = ${JSON.stringify(cleanCode)};
+        code += '\\n\\nvar root = ReactDOM.createRoot(document.getElementById("root"));';
+        code += '\\nroot.render(React.createElement(' + ${JSON.stringify(componentName)} + '));';
+        
+        var transformed = Babel.transform(code, {
+          presets: ['react'],
+          filename: 'component.jsx'
+        }).code;
+        
+        // Execute the transformed code
+        var scriptEl = document.createElement('script');
+        scriptEl.textContent = transformed;
+        document.body.appendChild(scriptEl);
+      } catch(err) {
+        showError(err.message || String(err));
+      }
+    }
+
+    bootstrap();
   </script>
 </body>
 </html>`;
@@ -137,7 +208,8 @@ function openReactPreviewInNewTab(reactCode: string) {
   const blob = new Blob([shell], { type: 'text/html' });
   const url  = URL.createObjectURL(blob);
   window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
+  // Don't revoke too early — give CDN scripts time to load
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
 /* ────────────────────── component ────────────────────── */
