@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useDrawingSocket } from "../hooks/useDrawingSocket";
 import { useCanvasManager, type ShapeType } from "../hooks/useCanvasManager";
 import DrawingToolSelector, { ToolType } from "./DrawingToolSelector";
-import { Cpu, Zap } from "lucide-react";
+import { Cpu, Zap, ArrowLeft, BarChart3, Radio, Users } from "lucide-react";
 import AnalysisPanel, { type AnalysisPanelHandle } from "./AnalysisPanel";
 import ChatPanel, { type ChatMessage } from "./ChatPanel";
 import LiveCursors, { type CursorData } from "./LiveCursors";
@@ -31,7 +31,7 @@ type Shape = { shapeType: ShapeType; shapeData: Record<string, unknown> };
 export default function DrawingBoard({ roomId, token }: { roomId: string; token: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [tool, setTool] = useState<ToolType>("pencil");
+  const [tool, setTool] = useState<ToolType>("select");
   const [shapes, setShapes] = useState<Shape[]>([]);
   const [canvasSize, setCanvasSize] = useState({ w: 900, h: 600 });
 
@@ -59,6 +59,9 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   /* ── Palette state ── */
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+
+  /* ── Analysis Panel state ── */
+  const [analysisPanelCollapsed, setAnalysisPanelCollapsed] = useState(false);
 
   /* ── Annotation state ── */
   const [annotations, setAnnotations] = useState<Map<string, ComponentAnnotation>>(new Map());
@@ -100,7 +103,23 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       setCursorsVersion((v) => v + 1);
     },
     onChatMessageAction: (msg) => {
-      setChatMessages((prev) => [...prev, msg]);
+      setChatMessages((prev) => {
+        // Deduplicate: if a message with this DB id already exists, replace the optimistic one
+        if (msg.id) {
+          const existingIdx = prev.findIndex((m) => m.id === msg.id);
+          if (existingIdx !== -1) return prev; // already have this message
+        }
+        // Replace optimistic placeholder (no id, same user + content) with the real server message
+        const pendingIdx = prev.findIndex(
+          (m) => !m.id && m.userId === msg.userId && m.content === msg.content
+        );
+        if (pendingIdx !== -1) {
+          const next = [...prev];
+          next[pendingIdx] = msg;
+          return next;
+        }
+        return [...prev, msg];
+      });
     },
     onUserJoinedAction: (user) => {
       setRoomUsers((prev) => {
@@ -569,152 +588,237 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   }, []);
 
   return (
-    <div style={{ display: "flex", width: "100%", height: "100%", overflow: "hidden" }}>
-      {/* Component Palette (left sidebar) */}
-      <ComponentPalette
-        onDrop={handlePaletteDrop}
-        collapsed={paletteCollapsed}
-        onToggleCollapse={() => setPaletteCollapsed(prev => !prev)}
-      />
+    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", overflow: "hidden" }}>
+      {/* Header Navigation */}
+      <nav className="nav">
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <a
+            href="/projects"
+            style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+          >
+            <ArrowLeft size={15} />
+            Projects
+          </a>
+          <div
+            style={{
+              width: 1,
+              height: 20,
+              background: "var(--border)",
+            }}
+          />
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              fontSize: "0.85rem",
+              color: "var(--text-muted)",
+            }}
+          >
+            <Radio size={13} style={{ color: "var(--success)" }} />
+            Room {roomId}
+          </div>
+        </div>
 
-      <div className="draw-board" ref={containerRef}>
-        <DrawingToolSelector
-          currentTool={tool}
-          setToolAction={setTool}
-          color={color}
-          onColorChange={setColor}
-          strokeWidth={strokeWidth}
-          onStrokeWidthChange={setStrokeWidth}
-          onUndo={handleUndo}
-          onRedo={handleRedo}
-          canUndo={canUndo}
-          canRedo={canRedo}
-          onExport={handleExport}
+        {/* Integrated Toolbar */}
+        <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%, -50%)", zIndex: 110 }}>
+          <DrawingToolSelector
+            currentTool={tool}
+            setToolAction={setTool}
+            color={color}
+            onColorChange={setColor}
+            strokeWidth={strokeWidth}
+            onStrokeWidthChange={setStrokeWidth}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onExport={handleExport}
+          />
+        </div>
+
+        <div className="nav-actions">
+          <span className="badge badge-accent">
+            <Users size={11} />
+            Live
+          </span>
+          <a
+            href={process.env.NEXT_PUBLIC_DASHBOARD_URL ?? "http://localhost:4002"}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ display: "flex", alignItems: "center", gap: "0.3rem" }}
+          >
+            <BarChart3 size={14} />
+            Dashboard
+          </a>
+        </div>
+      </nav>
+
+      {/* Main Workspace Area */}
+      <div style={{ display: "flex", flex: 1, width: "100%", overflow: "hidden" }}>
+        {/* Component Palette (left sidebar) */}
+        <ComponentPalette
+          onDrop={handlePaletteDrop}
+          collapsed={paletteCollapsed}
+          onToggleCollapse={() => setPaletteCollapsed(prev => !prev)}
         />
 
-        <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <canvas
-            ref={canvasRef}
-            width={canvasSize.w}
-            height={canvasSize.h}
-            className="draw-canvas"
-            onMouseDown={(e) => {
-              // Deselect any selected component when the user clicks on the canvas to draw
-              if (selectedComponentId) setSelectedComponentId(null);
-              handleMouseDown(e);
-            }}
-            onMouseUp={handleMouseUp}
-            onMouseMove={combinedMouseMove}
-            onDoubleClick={handleCanvasDoubleClick}
-            onDragOver={handleCanvasDragOver}
-            onDragLeave={handleCanvasDragLeave}
-            onDrop={handleCanvasDrop}
-          />
-
-          {/* Transform & Selection Overlay */}
-          {detections.length > 0 && (
-            <TransformOverlay
-              detections={detections as any}
-              selectedId={selectedComponentId}
-              onSelect={setSelectedComponentId}
-              onUpdateBBox={handleUpdateBBox}
-              onOpenAnnotation={(id) => {
-                const det = detections.find(d => d.id === id);
-                if (det) {
-                  setEditingAnnotation({
-                    componentId: id,
-                    componentType: det.type,
-                    position: { x: det.boundingBox.x + det.boundingBox.width, y: det.boundingBox.y },
-                  });
-                }
+        <div className="draw-board" ref={containerRef}>
+          <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <canvas
+              ref={canvasRef}
+              width={canvasSize.w}
+              height={canvasSize.h}
+              className="draw-canvas"
+              onMouseDown={(e) => {
+                // Deselect any selected component when the user clicks on the canvas to draw
+                if (selectedComponentId) setSelectedComponentId(null);
+                handleMouseDown(e);
               }}
-              onDelete={handleDeleteComponent}
-              onDuplicate={handleDuplicateComponent}
-              canvasWidth={canvasSize.w}
-              canvasHeight={canvasSize.h}
+              onMouseUp={handleMouseUp}
+              onMouseMove={combinedMouseMove}
+              onDoubleClick={handleCanvasDoubleClick}
+              onDragOver={handleCanvasDragOver}
+              onDragLeave={handleCanvasDragLeave}
+              onDrop={handleCanvasDrop}
             />
+
+            {/* Transform & Selection Overlay */}
+            {detections.length > 0 && (
+              <TransformOverlay
+                detections={detections as any}
+                selectedId={selectedComponentId}
+                onSelect={setSelectedComponentId}
+                onUpdateBBox={handleUpdateBBox}
+                onOpenAnnotation={(id) => {
+                  const det = detections.find(d => d.id === id);
+                  if (det) {
+                    setEditingAnnotation({
+                      componentId: id,
+                      componentType: det.type,
+                      position: { x: det.boundingBox.x + det.boundingBox.width, y: det.boundingBox.y },
+                    });
+                  }
+                }}
+                onDelete={handleDeleteComponent}
+                onDuplicate={handleDuplicateComponent}
+                canvasWidth={canvasSize.w}
+                canvasHeight={canvasSize.h}
+              />
+            )}
+
+            {/* Live cursors overlay */}
+            <LiveCursors cursors={cursorsRef.current} key={cursorsVersion} />
+          </div>
+
+          {/* Live detection indicator */}
+          {liveDetection && liveDetection.smoothedConfidence >= 0.45 && (
+            <div className="draw-live-detection">
+              <span className="draw-live-dot" />
+              <Cpu size={13} />
+              Detecting:{" "}
+              <strong style={{ marginLeft: 2 }}>{liveDetection.label}</strong>
+              <span className="badge badge-accent" style={{ marginLeft: 4 }}>
+                {(liveDetection.smoothedConfidence * 100).toFixed(0)}%
+              </span>
+            </div>
           )}
 
-          {/* Live cursors overlay */}
-          <LiveCursors cursors={cursorsRef.current} key={cursorsVersion} />
-        </div>
-
-        {/* Live detection indicator */}
-        {liveDetection && liveDetection.smoothedConfidence >= 0.45 && (
-          <div className="draw-live-detection">
-            <span className="draw-live-dot" />
-            <Cpu size={13} />
-            Detecting:{" "}
-            <strong style={{ marginLeft: 2 }}>{liveDetection.label}</strong>
-            <span className="badge badge-accent" style={{ marginLeft: 4 }}>
-              {(liveDetection.smoothedConfidence * 100).toFixed(0)}%
-            </span>
+          <div className="draw-hint">
+            <Zap size={12} />
+            <span>UI components detected via <strong>SketchUI</strong> pipeline</span>
           </div>
-        )}
 
-        <div className="draw-hint">
-          <Zap size={12} />
-          <span>UI components detected via <strong>SketchUI</strong> pipeline</span>
+          {/* AutoDraw Magic → Premium UI Generation */}
+          {shapes.filter(s => s.shapeType === "pencil" || s.shapeType === "wireframe").length > 0 && (
+            <button
+              onClick={() => {
+                // 1. Force re-run detection pipeline
+                runDetectionPipeline();
+
+                // 2. Show component count
+                const count = detections.length;
+                console.log(`✨ ${count} components detected → generating premium UI...`);
+
+                // 3. Expand the panel
+                setAnalysisPanelCollapsed(false);
+
+                // 4. Switch to Code tab
+                analysisPanelRef.current?.switchToTab("code");
+
+                // 5. Trigger auto-generation
+                setAutoGenerate(true);
+              }}
+              className="autodraw-magic-btn"
+            >
+              ✨ AutoDraw Magic
+            </button>
+          )}
+
+          {/* Chat panel */}
+          <ChatPanel
+            messages={chatMessages}
+            onSendMessage={(content) => {
+              // Optimistic: add message locally immediately so it feels instant
+              setChatMessages((prev) => [...prev, {
+                userId: myUserId ?? "",
+                userName: "You",
+                content,
+                createdAt: new Date().toISOString(),
+              }]);
+              sendChatMessage(content);
+            }}
+            isOpen={chatOpen}
+            onToggle={() => setChatOpen((o) => !o)}
+            currentUserId={myUserId ?? undefined}
+          />
+          {/* Annotation editor overlay */}
+          {editingAnnotation && (
+            <AnnotationEditor
+              componentId={editingAnnotation.componentId}
+              componentType={editingAnnotation.componentType}
+              position={editingAnnotation.position}
+              annotation={annotations.get(editingAnnotation.componentId) || null}
+              onSave={handleSaveAnnotation}
+              onClose={() => setEditingAnnotation(null)}
+            />
+          )}
         </div>
 
-        {/* AutoDraw Magic → Premium UI Generation */}
-        {shapes.filter(s => s.shapeType === "pencil" || s.shapeType === "wireframe").length > 0 && (
-          <button
-            onClick={() => {
-              // 1. Force re-run detection pipeline
-              runDetectionPipeline();
-
-              // 2. Show component count
-              const count = detections.length;
-              console.log(`✨ ${count} components detected → generating premium UI...`);
-
-              // 3. Switch to Code tab
-              analysisPanelRef.current?.switchToTab("code");
-
-              // 4. Trigger auto-generation
-              setAutoGenerate(true);
-            }}
-            className="autodraw-magic-btn"
-          >
-            ✨ AutoDraw Magic
-          </button>
-        )}
-
-        {/* Chat panel */}
-        <ChatPanel
-          messages={chatMessages}
-          onSendMessage={sendChatMessage}
-          isOpen={chatOpen}
-          onToggle={() => setChatOpen((o) => !o)}
-          currentUserId={myUserId ?? undefined}
+        {/* SketchUI 3-Tab Panel */}
+        <AnalysisPanel
+          ref={analysisPanelRef}
+          detections={detections}
+          layoutTree={layoutTree}
+          selectedComponentId={selectedComponentId}
+          onSelectComponent={handleSelectComponent}
+          onUpdateNodeType={handleUpdateNodeType}
+          canvasWidth={canvasSize.w}
+          canvasHeight={canvasSize.h}
+          autoGenerate={autoGenerate}
+          onGenerationComplete={() => setAutoGenerate(false)}
+          annotations={annotations}
+          collapsed={analysisPanelCollapsed}
+          onToggleCollapse={() => setAnalysisPanelCollapsed(prev => !prev)}
         />
-        {/* Annotation editor overlay */}
-        {editingAnnotation && (
-          <AnnotationEditor
-            componentId={editingAnnotation.componentId}
-            componentType={editingAnnotation.componentType}
-            position={editingAnnotation.position}
-            annotation={annotations.get(editingAnnotation.componentId) || null}
-            onSave={handleSaveAnnotation}
-            onClose={() => setEditingAnnotation(null)}
-          />
-        )}
       </div>
 
-      {/* SketchUI 3-Tab Panel */}
-      <AnalysisPanel
-        ref={analysisPanelRef}
-        detections={detections}
-        layoutTree={layoutTree}
-        selectedComponentId={selectedComponentId}
-        onSelectComponent={handleSelectComponent}
-        onUpdateNodeType={handleUpdateNodeType}
-        canvasWidth={canvasSize.w}
-        canvasHeight={canvasSize.h}
-        autoGenerate={autoGenerate}
-        onGenerationComplete={() => setAutoGenerate(false)}
-        annotations={annotations}
-      />
+      {/* Status Bar */}
+      <div className="draw-status">
+        <div className="draw-status-item">
+          <span className="draw-status-dot" />
+          Connected
+        </div>
+        <div className="draw-status-item">
+          Room #{roomId}
+        </div>
+        <div className="draw-status-item">
+          Ctrl+Z Undo · Ctrl+Y Redo
+        </div>
+        <div className="draw-status-item">
+          DTW + Geometric Heuristics
+        </div>
+      </div>
     </div>
   );
 }

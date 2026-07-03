@@ -130,11 +130,9 @@ export function useCanvasManager({
       }
       ctx.stroke();
     } else if (shape.shapeType === "eraser") {
-      const { x1, y1, x2, y2 } = shape.shapeData as { x1: number; y1: number; x2: number; y2: number };
-      ctx.globalCompositeOperation = "destination-out";
-      ctx.fillStyle = "rgba(0,0,0,1)";
-      ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
-      ctx.globalCompositeOperation = "source-over"; // Reset
+      // Eraser shapes are handled via shape removal in handleMouseUp.
+      // Nothing to render — the erased shapes are already removed from the array.
+      return;
     } else if (shape.shapeType === "emoji") {
       const { x, y, w, h, text } = shape.shapeData as { x: number; y: number; w: number; h: number; text: string };
       // Calculate a reasonable size: at least 40px, but capped at 250px so it doesn't overflow the screen
@@ -259,7 +257,81 @@ export function useCanvasManager({
 
     const end = getPos(e);
 
-    if (tool === "line" || tool === "rectangle" || tool === "eraser") {
+    if (tool === "eraser") {
+      // Compute the eraser rectangle (normalize coordinates)
+      const ex1 = Math.min(start.x, end.x);
+      const ey1 = Math.min(start.y, end.y);
+      const ex2 = Math.max(start.x, end.x);
+      const ey2 = Math.max(start.y, end.y);
+
+      // Find shapes that intersect the eraser region
+      const toRemove: Shape[] = [];
+      const toKeep: Shape[] = [];
+
+      for (const shape of shapes) {
+        let intersects = false;
+
+        if (shape.shapeType === "pencil") {
+          const path = (shape.shapeData as any).path as { x: number; y: number }[];
+          if (path) {
+            intersects = path.some(
+              (p) => p.x >= ex1 && p.x <= ex2 && p.y >= ey1 && p.y <= ey2
+            );
+          }
+        } else if (shape.shapeType === "line" || shape.shapeType === "rectangle") {
+          const { x1: sx1, y1: sy1, x2: sx2, y2: sy2 } = shape.shapeData as any;
+          // Check if the two rectangles overlap
+          const sMinX = Math.min(sx1, sx2);
+          const sMaxX = Math.max(sx1, sx2);
+          const sMinY = Math.min(sy1, sy2);
+          const sMaxY = Math.max(sy1, sy2);
+          intersects = !(sMaxX < ex1 || sMinX > ex2 || sMaxY < ey1 || sMinY > ey2);
+        } else if (shape.shapeType === "wireframe" || shape.shapeType === "emoji") {
+          const data = shape.shapeData as any;
+          if (data.x != null && data.w != null) {
+            intersects = !(
+              data.x + data.w < ex1 || data.x > ex2 ||
+              data.y + data.h < ey1 || data.y > ey2
+            );
+          }
+        } else if (shape.shapeType === "completion") {
+          const comp = (shape.shapeData as any).completion;
+          if (comp) {
+            if (comp.cx != null && comp.r != null) {
+              // Circle
+              intersects = !(
+                comp.cx + comp.r < ex1 || comp.cx - comp.r > ex2 ||
+                comp.cy + comp.r < ey1 || comp.cy - comp.r > ey2
+              );
+            } else if (comp.x != null && comp.w != null) {
+              intersects = !(
+                comp.x + comp.w < ex1 || comp.x > ex2 ||
+                comp.y + comp.h < ey1 || comp.y > ey2
+              );
+            } else if (comp.path) {
+              intersects = comp.path.some(
+                (p: any) => p.x >= ex1 && p.x <= ex2 && p.y >= ey1 && p.y <= ey2
+              );
+            }
+          }
+        }
+
+        if (intersects) {
+          toRemove.push(shape);
+        } else {
+          toKeep.push(shape);
+        }
+      }
+
+      // Remove intersecting shapes and broadcast clear events
+      if (toRemove.length > 0) {
+        for (const shape of toRemove) {
+          onSendDrawEventAction("clear_shape" as ShapeType, shape.shapeData);
+        }
+      }
+
+      renderCanvas();
+    } else if (tool === "line" || tool === "rectangle") {
       const shapeData = {
         x1: start.x,
         y1: start.y,
@@ -326,7 +398,7 @@ export function useCanvasManager({
     }
 
     setStart(null);
-  }, [tool, start, color, strokeWidth, onSendDrawEventAction, renderCanvas]);
+  }, [tool, start, color, strokeWidth, onSendDrawEventAction, renderCanvas, shapes]);
 
   return {
     handleMouseDown,

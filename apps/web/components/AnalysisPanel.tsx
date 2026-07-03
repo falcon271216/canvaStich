@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useImperativeHandle, forwardRef } from "react";
-import { Scan, GitBranch, Code2 } from "lucide-react";
+import { Scan, GitBranch, Code2, GripVertical } from "lucide-react";
 import type { UIDetectionResult, LayoutNode, UIComponentType } from "@repo/pattern-detection";
 import type { ComponentAnnotation } from "./AnnotationEditor";
 import DetectionPanel from "./panels/DetectionPanel";
@@ -21,6 +21,8 @@ interface AnalysisPanelProps {
   autoGenerate?: boolean;
   onGenerationComplete?: () => void;
   annotations?: Map<string, ComponentAnnotation>;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export interface AnalysisPanelHandle {
@@ -45,6 +47,8 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
     autoGenerate,
     onGenerationComplete,
     annotations,
+    collapsed = false,
+    onToggleCollapse,
   },
   ref,
 ) {
@@ -54,6 +58,20 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
   useImperativeHandle(ref, () => ({
     switchToTab: (tab: TabId) => setActiveTab(tab),
   }));
+
+  if (collapsed) {
+    return (
+      <div className="analysis-collapsed" onClick={onToggleCollapse} title="Expand panel">
+        <div className="analysis-collapsed-icon">
+          <GripVertical size={16} style={{ transform: "rotate(90deg)", opacity: 0.5 }} />
+          <Scan size={14} style={{ marginTop: 12 }} />
+          <GitBranch size={14} />
+          <Code2 size={14} />
+        </div>
+        <div className="analysis-collapsed-label" style={{ marginTop: 8 }}>Analysis Panel</div>
+      </div>
+    );
+  }
 
   return (
     <div className="analysis-panel">
@@ -72,6 +90,15 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
             )}
           </button>
         ))}
+        {onToggleCollapse && (
+          <button
+            className="panel-collapse-btn"
+            onClick={onToggleCollapse}
+            title="Collapse panel"
+          >
+            ›
+          </button>
+        )}
       </div>
 
       {/* Tab content */}

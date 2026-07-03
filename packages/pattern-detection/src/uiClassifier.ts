@@ -1,7 +1,7 @@
 /**
  * UI Component Classifier — combined heuristic + DTW ensemble.
  *
- * Classifies groups of strokes into one of 14 UI component types
+ * Classifies groups of strokes into one of 22 UI component types
  * using two complementary approaches:
  *  1. **Heuristic rules** on the extracted StrokeFeatureVector
  *  2. **DTW nearest-neighbour** against canonical UI-component templates
@@ -45,7 +45,7 @@ const TMPL_POINTS = 64;
 let _cachedUITemplates: UITemplate[] | null = null;
 
 /**
- * Build canonical DTW templates for all 14 UI component types.
+ * Build canonical DTW templates for all 22 UI component types.
  * We use the synthetic data generator with minimal noise to create
  * 3 representative templates per class.
  */

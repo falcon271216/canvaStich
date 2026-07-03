@@ -493,7 +493,7 @@ input:focus {
 .draw-page {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 56px);
+  height: 100vh;
   background: var(--bg-subtle);
   position: relative;
   overflow: hidden;
@@ -589,10 +589,10 @@ input:focus {
   backdrop-filter: blur(16px);
   box-shadow: var(--shadow-glow);
   position: absolute;
-  bottom: 1.5rem;
+  bottom: 5rem;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 10;
+  z-index: 12;
   animation: slideUp var(--duration-normal) var(--ease-spring);
 }
 .draw-live-dot {
@@ -608,11 +608,12 @@ input:focus {
   font-size: 0.8rem;
   color: var(--text-dim);
   position: absolute;
-  bottom: 0.75rem;
-  right: 1.5rem;
+  bottom: 0.5rem;
+  left: 1.5rem;
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  z-index: 5;
 }
 .draw-hint strong {
   color: var(--accent);
@@ -737,6 +738,61 @@ input:focus {
   flex-direction: column;
   overflow-y: auto;
   backdrop-filter: blur(16px);
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.analysis-collapsed {
+  width: 36px;
+  min-width: 36px;
+  background: var(--bg-subtle);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px;
+  gap: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}
+
+.analysis-collapsed:hover {
+  background: var(--surface);
+}
+
+.analysis-collapsed-icon {
+  color: var(--text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.analysis-collapsed-label {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+}
+
+.panel-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 1.1rem;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.panel-collapse-btn:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.05);
 }
 .analysis-panel.empty {
   align-items: center;
@@ -2025,11 +2081,7 @@ input:focus {
    ═══════════════════════════════════════════════════════════ */
 
 .draw-toolbar-wrapper {
-  position: absolute;
-  top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2044,6 +2096,11 @@ input:focus {
 
 /* Properties bar (color swatches + stroke width) */
 .draw-props-bar {
+  position: absolute;
+  top: 52px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -2054,6 +2111,7 @@ input:focus {
   backdrop-filter: blur(20px) saturate(1.5);
   box-shadow: var(--shadow-md);
   animation: fadeIn var(--duration-fast) var(--ease-out);
+  width: max-content;
 }
 
 /* Color swatches */
@@ -2177,9 +2235,9 @@ input:focus {
 
 .chat-toggle-btn {
   position: absolute;
-  bottom: 1.25rem;
-  right: 1.25rem;
-  z-index: 15;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 20;
   width: 44px;
   height: 44px;
   border-radius: 50%;
@@ -2217,11 +2275,11 @@ input:focus {
 
 .chat-panel {
   position: absolute;
-  bottom: 1.25rem;
-  right: 1.25rem;
-  z-index: 15;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 20;
   width: 320px;
-  max-height: 420px;
+  max-height: 380px;
   background: rgba(18, 18, 24, 0.95);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -2367,26 +2425,25 @@ input:focus {
 
 .autodraw-magic-btn {
   position: absolute;
-  bottom: 20px;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 1.5rem;
+  left: 1.5rem;
   background: linear-gradient(135deg, #a855f7, #6366f1) !important;
   color: white !important;
   border: none !important;
-  padding: 0.75rem 1.5rem;
+  padding: 0.65rem 1.25rem;
   border-radius: 999px;
   font-weight: bold;
   cursor: pointer;
   box-shadow: 0 4px 15px rgba(168, 85, 247, 0.4);
-  z-index: 10;
-  font-size: 1rem;
+  z-index: 14;
+  font-size: 0.9rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
   transition: all var(--duration-fast) var(--ease-out);
 }
 .autodraw-magic-btn:hover {
-  transform: translateX(-50%) translateY(-2px);
+  transform: translateY(-2px);
   box-shadow: 0 6px 25px rgba(168, 85, 247, 0.5);
 }
 
@@ -3046,3 +3103,388 @@ input:focus {
   font-size: 0.75rem;
   font-weight: 500;
 }
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE – TABLET (≤ 1024px)
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 1024px) {
+  /* Narrow the analysis panel */
+  .analysis-panel {
+    width: 260px;
+  }
+
+  /* Narrow the palette sidebar */
+  .palette-sidebar {
+    width: 160px;
+    min-width: 160px;
+  }
+
+  .palette-items-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  /* Slightly smaller canvas padding */
+  .draw-board {
+    padding: 0.5rem;
+  }
+
+  /* Nav adjustments */
+  .nav {
+    padding: 0 1rem;
+  }
+
+  .nav a {
+    font-size: 0.8rem;
+    padding: 0.3rem 0.5rem;
+  }
+
+  /* Status bar wraps */
+  .draw-status {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+  }
+
+  /* Chat panel */
+  .chat-panel {
+    width: 280px;
+  }
+
+  /* AutoDraw button */
+  .autodraw-magic-btn {
+    font-size: 0.8rem;
+    padding: 0.5rem 1rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE – MOBILE (≤ 768px)
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  /* Nav becomes compact */
+  .nav {
+    height: 48px;
+    padding: 0 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .nav-brand span {
+    display: none;
+  }
+
+  .nav a {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  .nav-actions .badge {
+    font-size: 0.6rem;
+    padding: 0.15rem 0.35rem;
+  }
+
+  /* Draw page height adjusted for shorter nav */
+  .draw-page {
+    height: 100vh;
+  }
+
+  /* Hide palette sidebar on mobile — collapse by default */
+  .palette-sidebar {
+    display: none;
+  }
+
+  /* Analysis panel becomes a bottom sheet */
+  .analysis-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 45vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    z-index: 50;
+    overflow-y: auto;
+  }
+
+  .analysis-panel.empty {
+    max-height: 120px;
+    padding: 1rem;
+  }
+
+  .analysis-header {
+    padding: 0.75rem 1rem;
+    font-size: 0.82rem;
+  }
+
+  .analysis-content {
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+
+  /* Draw board fills the space */
+  .draw-board {
+    padding: 0.25rem;
+    padding-bottom: 0;
+  }
+
+  /* Make toolbar scrollable horizontally */
+  .draw-tools {
+    top: 0.5rem;
+    padding: 3px;
+    overflow-x: auto;
+    max-width: calc(100vw - 1rem);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .draw-tools button {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+  }
+
+  /* Canvas adjustments */
+  .draw-canvas {
+    border-radius: var(--radius-md);
+  }
+
+  /* Status bar hides less-important items */
+  .draw-status {
+    font-size: 0.65rem;
+    padding: 0.35rem 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .draw-status-item:nth-child(n+3) {
+    display: none;
+  }
+
+  /* Move live detection badge */
+  .draw-live-detection {
+    bottom: 3.5rem;
+    font-size: 0.72rem;
+    padding: 0.35rem 0.75rem;
+  }
+
+  /* Move draw hint */
+  .draw-hint {
+    display: none;
+  }
+
+  /* Chat panel takes full width */
+  .chat-panel {
+    width: calc(100vw - 1.5rem);
+    max-width: 360px;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    max-height: 50vh;
+  }
+
+  /* Chat toggle button */
+  .chat-toggle-btn {
+    bottom: 0.75rem;
+    right: 0.75rem;
+    width: 40px;
+    height: 40px;
+  }
+
+  /* AutoDraw button */
+  .autodraw-magic-btn {
+    font-size: 0.75rem;
+    padding: 0.4rem 0.85rem;
+    bottom: 3rem;
+  }
+
+  /* Auth pages */
+  .container {
+    padding: 2rem 1rem;
+  }
+
+  .auth-card {
+    padding: 1.5rem;
+  }
+
+  /* Landing / home */
+  .page-title {
+    font-size: 1.35rem;
+  }
+
+  .page-subtitle {
+    font-size: 0.85rem;
+  }
+
+  /* Annotation editor */
+  .annotation-editor {
+    width: calc(100vw - 2rem) !important;
+    max-width: 320px;
+  }
+
+  /* Transform overlay context menu */
+  .transform-context-menu {
+    transform: scale(0.9);
+    transform-origin: top left;
+  }
+
+  /* AutoDraw progress overlay */
+  .autodraw-progress-card {
+    width: calc(100vw - 2rem);
+    max-width: 360px;
+  }
+
+  /* Detection panel tab bar */
+  .analysis-tabs {
+    gap: 0;
+  }
+
+  .analysis-tab {
+    font-size: 0.72rem;
+    padding: 0.5rem 0.6rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE – SMALL MOBILE (≤ 480px)
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 480px) {
+  .nav {
+    height: 44px;
+    padding: 0 0.5rem;
+  }
+
+  .draw-page {
+    height: 100vh;
+  }
+
+  /* Toolbar wraps to a single row */
+  .draw-tools {
+    top: 0.25rem;
+    gap: 1px;
+    padding: 2px;
+  }
+
+  .draw-tools button {
+    width: 32px;
+    height: 32px;
+    font-size: 0.8rem;
+  }
+
+  .tool-separator {
+    height: 22px !important;
+    margin: 0 2px !important;
+  }
+
+  /* Analysis panel bottom sheet – even more compact */
+  .analysis-panel {
+    max-height: 40vh;
+  }
+
+  .analysis-header {
+    padding: 0.6rem 0.75rem;
+    font-size: 0.78rem;
+  }
+
+  .analysis-content {
+    padding: 0.75rem;
+    gap: 0.6rem;
+  }
+
+  .analysis-card {
+    padding: 0.65rem;
+  }
+
+  /* Status bar single line */
+  .draw-status {
+    font-size: 0.6rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  .draw-status-item:nth-child(n+2) {
+    display: none;
+  }
+
+  /* Chat fills screen width */
+  .chat-panel {
+    width: calc(100vw - 1rem);
+    max-width: none;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    max-height: 60vh;
+  }
+
+  .chat-messages {
+    min-height: 150px;
+  }
+
+  /* Auth pages */
+  .auth-wrapper {
+    padding: 1rem;
+  }
+
+  .auth-card {
+    padding: 1.25rem;
+  }
+
+  .container {
+    padding: 1.5rem 0.75rem;
+  }
+
+  /* Room cards */
+  .room-card {
+    padding: 1rem;
+  }
+
+  .room-card h2 {
+    font-size: 0.9rem;
+  }
+
+  /* Canvas border radius smaller */
+  .draw-canvas {
+    border-radius: var(--radius-sm);
+  }
+
+  /* Live detection badge compact */
+  .draw-live-detection {
+    font-size: 0.65rem;
+    padding: 0.3rem 0.6rem;
+    gap: 0.35rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOUCH DEVICE OPTIMIZATIONS
+   ═══════════════════════════════════════════════════════════ */
+
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets for tools */
+  .draw-tools button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  /* Prevent double-tap zoom on canvas */
+  .draw-canvas {
+    touch-action: none;
+  }
+
+  /* Larger chat toggle */
+  .chat-toggle-btn {
+    width: 48px;
+    height: 48px;
+  }
+
+  /* Disable hover effects */
+  .room-card:hover {
+    transform: none;
+  }
+
+  .palette-item:hover {
+    transform: none;
+    border-color: var(--border);
+  }
+}
+

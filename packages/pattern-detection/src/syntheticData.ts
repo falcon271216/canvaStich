@@ -1,5 +1,5 @@
 /**
- * Synthetic stroke data generator for all 14 UI component classes.
+ * Synthetic stroke data generator for all 22 UI component classes.
  *
  * Since no hand-drawn UI-component dataset exists, we programmatically
  * generate stroke sequences that mimic how a user would sketch each
@@ -312,6 +312,164 @@ function generateContainerBoxStroke(): Point[][] {
   return [addNoise(addTimestamps(pts, rand(1500, 3500)), rand(3, 5))];
 }
 
+/* ────────────────── v2 wireframe generators ────────────────── */
+
+function generateAvatarStroke(): Point[][] {
+  const cx = rand(100, 400);
+  const cy = rand(100, 400);
+  const r = rand(18, 35);
+  // Outer circle
+  const outer = circlePath(cx, cy, r, 28);
+  const strokes: Point[][] = [addNoise(addTimestamps(outer, rand(600, 1200)), rand(2, 3))];
+  // Head (smaller circle above centre)
+  const head = circlePath(cx, cy - r * 0.2, r * 0.3, 16);
+  strokes.push(addNoise(addTimestamps(head, rand(300, 600)), rand(1, 2)));
+  // Shoulders arc (half-circle below)
+  const shoulderPts: Point[] = [];
+  for (let i = 0; i <= 16; i++) {
+    const theta = Math.PI + (Math.PI * i) / 16;
+    shoulderPts.push({ x: cx + r * 0.45 * Math.cos(theta), y: cy + r * 0.7 + r * 0.45 * Math.sin(theta) });
+  }
+  strokes.push(addNoise(addTimestamps(shoulderPts, rand(300, 500)), rand(1, 2)));
+  return strokes;
+}
+
+function generateSearchBarStroke(): Point[][] {
+  const w = rand(180, 350);
+  const h = rand(28, 45);
+  const x = rand(50, 300);
+  const y = rand(50, 400);
+  // Rectangle
+  const box = rectanglePath(x, y, w, h, 12);
+  const strokes: Point[][] = [addNoise(addTimestamps(box, rand(800, 1800)), rand(2, 4))];
+  // Magnifying glass circle (left side)
+  const iconR = h * 0.2;
+  const icx = x + 16;
+  const icy = y + h / 2;
+  const lens = circlePath(icx, icy, iconR, 12);
+  strokes.push(addNoise(addTimestamps(lens, rand(200, 400)), rand(1, 2)));
+  // Handle
+  const handle = linePath(icx + iconR * 0.7, icy + iconR * 0.7, icx + iconR * 1.5, icy + iconR * 1.5, 6);
+  strokes.push(addNoise(addTimestamps(handle, rand(100, 200)), rand(1, 2)));
+  return strokes;
+}
+
+function generateRatingStroke(): Point[][] {
+  const x = rand(50, 400);
+  const y = rand(50, 400);
+  const starSize = rand(12, 22);
+  const strokes: Point[][] = [];
+  const starCount = 5;
+  for (let i = 0; i < starCount; i++) {
+    const cx = x + i * (starSize * 2 + 4) + starSize;
+    const cy = y + starSize;
+    // Simple star as a circle approximation for stroke detection
+    const star = circlePath(cx, cy, starSize * 0.7, 10);
+    strokes.push(addNoise(addTimestamps(star, rand(200, 400)), rand(2, 3)));
+  }
+  return strokes;
+}
+
+function generateTestimonialStroke(): Point[][] {
+  const w = rand(180, 320);
+  const h = rand(100, 200);
+  const x = rand(50, 300);
+  const y = rand(50, 300);
+  // Speech bubble rectangle
+  const box = rectanglePath(x, y, w, h - 14, 12);
+  const strokes: Point[][] = [addNoise(addTimestamps(box, rand(800, 1800)), rand(2, 4))];
+  // Tail triangle
+  const tail: Point[] = [
+    { x: x + 30, y: y + h - 14 },
+    { x: x + 38, y: y + h },
+    { x: x + 46, y: y + h - 14 },
+  ];
+  strokes.push(addNoise(addTimestamps(tail, rand(200, 400)), rand(1, 2)));
+  return strokes;
+}
+
+function generateListStroke(): Point[][] {
+  const x = rand(50, 300);
+  const y = rand(50, 300);
+  const w = rand(150, 300);
+  const itemCount = Math.floor(rand(3, 6));
+  const itemH = rand(28, 40);
+  const strokes: Point[][] = [];
+  for (let i = 0; i < itemCount; i++) {
+    const iy = y + i * itemH;
+    // Item rectangle
+    const row = rectanglePath(x, iy, w, itemH - 4, 8);
+    strokes.push(addNoise(addTimestamps(row, rand(400, 800)), rand(2, 3)));
+    // Bullet dot as tiny circle
+    const dot = circlePath(x + 10, iy + (itemH - 4) / 2, 3, 8);
+    strokes.push(addNoise(addTimestamps(dot, rand(100, 200)), rand(1, 2)));
+  }
+  return strokes;
+}
+
+function generateFeatureGridStroke(): Point[][] {
+  const x = rand(50, 200);
+  const y = rand(50, 200);
+  const totalW = rand(200, 400);
+  const totalH = rand(180, 350);
+  const gap = 8;
+  const cols = 2;
+  const rows = 2;
+  const cellW = (totalW - gap * (cols - 1)) / cols;
+  const cellH = (totalH - gap * (rows - 1)) / rows;
+  const strokes: Point[][] = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cx = x + c * (cellW + gap);
+      const cy = y + r * (cellH + gap);
+      const cell = rectanglePath(cx, cy, cellW, cellH, 8);
+      strokes.push(addNoise(addTimestamps(cell, rand(400, 800)), rand(2, 3)));
+      // Icon circle
+      const icon = circlePath(cx + cellW / 2, cy + cellH * 0.3, 8, 10);
+      strokes.push(addNoise(addTimestamps(icon, rand(200, 400)), rand(1, 2)));
+    }
+  }
+  return strokes;
+}
+
+function generateNavMenuStroke(): Point[][] {
+  const x = rand(50, 400);
+  const y = rand(50, 400);
+  const barW = rand(20, 30);
+  const barH = 3;
+  const spacing = rand(6, 10);
+  const strokes: Point[][] = [];
+  // Three horizontal lines (hamburger menu)
+  for (let i = 0; i < 3; i++) {
+    const ly = y + i * spacing;
+    const line = linePath(x, ly, x + barW, ly, 8);
+    strokes.push(addNoise(addTimestamps(line, rand(150, 300)), rand(1, 2)));
+  }
+  return strokes;
+}
+
+function generateNotificationBellStroke(): Point[][] {
+  const cx = rand(100, 400);
+  const cy = rand(100, 400);
+  const size = rand(15, 28);
+  const strokes: Point[][] = [];
+  // Bell body (dome shape — half circle + rectangle base)
+  const domePts: Point[] = [];
+  for (let i = 0; i <= 16; i++) {
+    const theta = Math.PI + (Math.PI * i) / 16;
+    domePts.push({ x: cx + size * Math.cos(theta), y: cy + size * Math.sin(theta) });
+  }
+  // Extend down to form bell base
+  domePts.push({ x: cx + size * 1.2, y: cy + size * 0.5 });
+  domePts.push({ x: cx - size * 1.2, y: cy + size * 0.5 });
+  domePts.push(domePts[0]!);
+  strokes.push(addNoise(addTimestamps(domePts, rand(500, 1000)), rand(2, 3)));
+  // Clapper dot
+  const clapper = circlePath(cx, cy + size * 0.7, size * 0.15, 8);
+  strokes.push(addNoise(addTimestamps(clapper, rand(100, 200)), rand(1, 2)));
+  return strokes;
+}
+
 /* ────────────────── main API ────────────────── */
 
 type GeneratorFn = () => Point[][];
@@ -331,6 +489,15 @@ const GENERATORS: Record<string, GeneratorFn> = {
   divider: generateDividerStroke,
   arrow_connector: generateArrowConnectorStroke,
   container_box: generateContainerBoxStroke,
+  // v2 wireframe symbols
+  avatar: generateAvatarStroke,
+  search_bar: generateSearchBarStroke,
+  rating: generateRatingStroke,
+  testimonial: generateTestimonialStroke,
+  list: generateListStroke,
+  feature_grid: generateFeatureGridStroke,
+  nav_menu: generateNavMenuStroke,
+  notification_bell: generateNotificationBellStroke,
 };
 
 /**
@@ -351,7 +518,7 @@ export function generateSyntheticStrokes(label: string, count: number): Syntheti
 }
 
 /**
- * Generate a full synthetic dataset for all 14 UI component types.
+ * Generate a full synthetic dataset for all 22 UI component types.
  *
  * @param samplesPerClass  Number of samples per class (default: 500).
  */

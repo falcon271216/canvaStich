@@ -1,14 +1,14 @@
 "use client";
 
 import { Zap, AlertTriangle } from "lucide-react";
-import type { UIDetectionResult } from "@repo/pattern-detection";
+import type { UIDetectionResult, UIComponentType } from "@repo/pattern-detection";
 import { UI_COMPONENT_ICONS, UI_COMPONENT_DISPLAY_NAMES, UI_COMPONENT_LABELS } from "@repo/pattern-detection";
 
 interface DetectionPanelProps {
   detections: (UIDetectionResult & { id?: string })[];
   selectedId: string | null;
   onSelectComponent: (id: string) => void;
-  onUpdateNodeType?: (id: string, newType: string) => void;
+  onUpdateNodeType?: (id: string, newType: UIComponentType) => void;
 }
 
 /** Color palette for bounding box overlays (14 distinct hues). */
@@ -80,7 +80,7 @@ export default function DetectionPanel({ detections, selectedId, onSelectCompone
               </span>
               <select
                 value={c.type}
-                onChange={e => onUpdateNodeType?.(c.id!, e.target.value)}
+                onChange={e => onUpdateNodeType?.(c.id!, e.target.value as UIComponentType)}
                 style={{
                   fontSize: '11px',
                   background: '#27272a',
@@ -91,7 +91,7 @@ export default function DetectionPanel({ detections, selectedId, onSelectCompone
                 }}
               >
                 {UI_COMPONENT_LABELS.map(t => (
-                  <option key={t} value={t}>{UI_COMPONENT_DISPLAY_NAMES[t as any] || t}</option>
+                  <option key={t} value={t}>{UI_COMPONENT_DISPLAY_NAMES[t] || t}</option>
                 ))}
               </select>
             </div>
