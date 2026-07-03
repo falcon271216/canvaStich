@@ -82,11 +82,8 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     token,
     roomId,
     onDrawEventAction: (event) => {
-      // Skip events that originated from this client — we already added
-      // them to local state in onSendDrawEventAction. Only process
-      // shapes from other users (remote collaboration events).
-      if (event.fromUserId && event.fromUserId === myUserId) return;
-
+      // All draw_event messages received here are from OTHER users —
+      // the server (broadcastToRoom) already excludes the sender.
       if (event.shapeType === "clear_shape") {
         setShapes((prev) => prev.filter(s =>
           JSON.stringify(s.shapeData) !== JSON.stringify(event.shapeData)

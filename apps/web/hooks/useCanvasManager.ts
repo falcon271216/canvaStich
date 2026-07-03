@@ -47,152 +47,6 @@ export function useCanvasManager({
     };
   };
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    const pos = getPos(e);
-    setStart(pos);
-    isDrawing.current = true;
-
-    if (tool === "pencil") {
-      pencilPath.current = [pos];
-      slidingDetector.current.reset();
-      slidingDetector.current.addPoint(pos);
-      setLiveDetection(null);
-    }
-  }, [tool]);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDrawing.current) return;
-    const pos = getPos(e);
-
-    if (tool === "pencil") {
-      pencilPath.current.push(pos);
-
-      // Feed the sliding window detector
-      slidingDetector.current.addPoint(pos);
-      const live = slidingDetector.current.getLatestDetection();
-      if (live && live.smoothedConfidence >= 0.45) {
-        setLiveDetection(live);
-      }
-
-      const ctx = canvasRef.current?.getContext("2d");
-      if (!ctx) return;
-
-      const path = pencilPath.current;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      if (path.length >= 2) {
-        const prev = path[path.length - 2]!;
-        ctx.moveTo(prev.x, prev.y);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-      }
-    } else if (tool === "eraser" || tool === "rectangle" || tool === "line") {
-      // Live preview
-      renderCanvas();
-      const ctx = canvasRef.current?.getContext("2d");
-      if (!ctx || !start) return;
-
-      if (tool === "eraser") {
-        ctx.save();
-        ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
-        ctx.strokeStyle = "#ef4444";
-        ctx.setLineDash([5, 5]);
-        ctx.fillRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
-        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
-        ctx.restore();
-      } else if (tool === "rectangle") {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
-        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
-      } else if (tool === "line") {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
-        ctx.beginPath();
-        ctx.moveTo(start.x, start.y);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
-      }
-    }
-  }, [tool, color, strokeWidth]);
-
-  const handleMouseUp = useCallback((e: React.MouseEvent) => {
-    if (!isDrawing.current || !start) return;
-    isDrawing.current = false;
-
-    const end = getPos(e);
-
-    if (tool === "line" || tool === "rectangle" || tool === "eraser") {
-      const shapeData = {
-        x1: start.x,
-        y1: start.y,
-        x2: end.x,
-        y2: end.y,
-        stroke: color,
-        lineWidth: strokeWidth,
-      };
-      onSendDrawEventAction(tool, shapeData);
-      renderCanvas(); // Clear live preview
-    } else if (tool === "pencil") {
-      const pathData = { path: [...pencilPath.current], stroke: color, lineWidth: strokeWidth };
-      onSendDrawEventAction(tool, pathData);
-
-      if (tool === "pencil" && pencilPath.current.length >= 8) {
-        // Run both Tier 1 (DTW) and Tier 2 (ML) asynchronously
-        import("../lib/ml").then(({ predictPattern }) => {
-          predictPattern(pencilPath.current).then((mlPredictions) => {
-            const result = detectShape(pencilPath.current);
-            if (
-              result.confidence >= PATTERN_CONFIDENCE_THRESHOLD &&
-              result.completion &&
-              result.label !== "unknown"
-            ) {
-              onSendDrawEventAction("analysis", {
-                completion: result.completion,
-                detectedLabel: result.label,
-                confidence: result.confidence,
-                method: result.method,
-                dtwDistance: result.dtwMatch?.normalizedDistance ?? null,
-                velocityProfile: result.strokeFeatures?.velocityProfile ?? null,
-                strokeDuration: result.strokeFeatures?.duration ?? null,
-                meanSpeed: result.strokeFeatures?.meanSpeed ?? null,
-                speedPeaks: result.strokeFeatures?.speedPeaks ?? null,
-                mlPredictions: mlPredictions, // <-- Attaching TFJS Deep Learning Results
-              });
-            } else if (mlPredictions && mlPredictions.length > 0) {
-              // If DTW failed to find a geometric shape, use the ML prediction
-              const topPred = mlPredictions[0];
-              if (topPred && topPred.probability > 0.4) {
-                onSendDrawEventAction("analysis", {
-                  completion: { type: "path", path: [...pencilPath.current], stroke: "#a855f7" }, // Highlight ML shapes
-                  detectedLabel: topPred.className,
-                  confidence: topPred.probability,
-                  method: "cnn",
-                  dtwDistance: null,
-                  velocityProfile: null,
-                  strokeDuration: null,
-                  meanSpeed: null,
-                  speedPeaks: null,
-                  mlPredictions: mlPredictions,
-                });
-              }
-            }
-          });
-        });
-      }
-
-      // Clean up sliding window state
-      if (tool === "pencil") {
-        setLiveDetection(null);
-        slidingDetector.current.reset();
-      }
-    }
-
-    setStart(null);
-  }, [tool, start, color, strokeWidth, onSendDrawEventAction]);
-
   const drawShape = (ctx: CanvasRenderingContext2D, shape: Shape) => {
     const stroke = (shape.shapeData.stroke as string) || "#000";
     const lw = (shape.shapeData.lineWidth as number) || 1;
@@ -327,6 +181,152 @@ export function useCanvasManager({
       ctx.restore();
     }
   }, [shapes, liveDetection]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    const pos = getPos(e);
+    setStart(pos);
+    isDrawing.current = true;
+
+    if (tool === "pencil") {
+      pencilPath.current = [pos];
+      slidingDetector.current.reset();
+      slidingDetector.current.addPoint(pos);
+      setLiveDetection(null);
+    }
+  }, [tool]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isDrawing.current) return;
+    const pos = getPos(e);
+
+    if (tool === "pencil") {
+      pencilPath.current.push(pos);
+
+      // Feed the sliding window detector
+      slidingDetector.current.addPoint(pos);
+      const live = slidingDetector.current.getLatestDetection();
+      if (live && live.smoothedConfidence >= 0.45) {
+        setLiveDetection(live);
+      }
+
+      const ctx = canvasRef.current?.getContext("2d");
+      if (!ctx) return;
+
+      const path = pencilPath.current;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = strokeWidth;
+      ctx.lineJoin = "round";
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      if (path.length >= 2) {
+        const prev = path[path.length - 2]!;
+        ctx.moveTo(prev.x, prev.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      }
+    } else if (tool === "eraser" || tool === "rectangle" || tool === "line") {
+      // Live preview — use latest renderCanvas so remote shapes are not erased
+      renderCanvas();
+      const ctx = canvasRef.current?.getContext("2d");
+      if (!ctx || !start) return;
+
+      if (tool === "eraser") {
+        ctx.save();
+        ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
+        ctx.strokeStyle = "#ef4444";
+        ctx.setLineDash([5, 5]);
+        ctx.fillRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+        ctx.restore();
+      } else if (tool === "rectangle") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeWidth;
+        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+      } else if (tool === "line") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeWidth;
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      }
+    }
+  }, [tool, color, strokeWidth, renderCanvas, start]);
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    if (!isDrawing.current || !start) return;
+    isDrawing.current = false;
+
+    const end = getPos(e);
+
+    if (tool === "line" || tool === "rectangle" || tool === "eraser") {
+      const shapeData = {
+        x1: start.x,
+        y1: start.y,
+        x2: end.x,
+        y2: end.y,
+        stroke: color,
+        lineWidth: strokeWidth,
+      };
+      onSendDrawEventAction(tool, shapeData);
+      renderCanvas(); // Clear live preview
+    } else if (tool === "pencil") {
+      const pathData = { path: [...pencilPath.current], stroke: color, lineWidth: strokeWidth };
+      onSendDrawEventAction(tool, pathData);
+
+      if (tool === "pencil" && pencilPath.current.length >= 8) {
+        // Run both Tier 1 (DTW) and Tier 2 (ML) asynchronously
+        import("../lib/ml").then(({ predictPattern }) => {
+          predictPattern(pencilPath.current).then((mlPredictions) => {
+            const result = detectShape(pencilPath.current);
+            if (
+              result.confidence >= PATTERN_CONFIDENCE_THRESHOLD &&
+              result.completion &&
+              result.label !== "unknown"
+            ) {
+              onSendDrawEventAction("analysis", {
+                completion: result.completion,
+                detectedLabel: result.label,
+                confidence: result.confidence,
+                method: result.method,
+                dtwDistance: result.dtwMatch?.normalizedDistance ?? null,
+                velocityProfile: result.strokeFeatures?.velocityProfile ?? null,
+                strokeDuration: result.strokeFeatures?.duration ?? null,
+                meanSpeed: result.strokeFeatures?.meanSpeed ?? null,
+                speedPeaks: result.strokeFeatures?.speedPeaks ?? null,
+                mlPredictions: mlPredictions, // <-- Attaching TFJS Deep Learning Results
+              });
+            } else if (mlPredictions && mlPredictions.length > 0) {
+              // If DTW failed to find a geometric shape, use the ML prediction
+              const topPred = mlPredictions[0];
+              if (topPred && topPred.probability > 0.4) {
+                onSendDrawEventAction("analysis", {
+                  completion: { type: "path", path: [...pencilPath.current], stroke: "#a855f7" }, // Highlight ML shapes
+                  detectedLabel: topPred.className,
+                  confidence: topPred.probability,
+                  method: "cnn",
+                  dtwDistance: null,
+                  velocityProfile: null,
+                  strokeDuration: null,
+                  meanSpeed: null,
+                  speedPeaks: null,
+                  mlPredictions: mlPredictions,
+                });
+              }
+            }
+          });
+        });
+      }
+
+      // Clean up sliding window state
+      if (tool === "pencil") {
+        setLiveDetection(null);
+        slidingDetector.current.reset();
+      }
+    }
+
+    setStart(null);
+  }, [tool, start, color, strokeWidth, onSendDrawEventAction, renderCanvas]);
 
   return {
     handleMouseDown,

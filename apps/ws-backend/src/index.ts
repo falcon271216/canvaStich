@@ -138,19 +138,14 @@ wss.on("connection", async (ws, request) => {
           }
         }
 
-        // Broadcast to all in same room
-        clients.forEach((c) => {
-          if (c.rooms.includes(roomId) && c.ws.readyState === WebSocket.OPEN) {
-            c.ws.send(
-              JSON.stringify({
-                type: "draw_event",
-                roomId,
-                shapeType,
-                shapeData,
-                fromUserId: userId,
-              })
-            );
-          }
+        // Broadcast to all in same room EXCEPT the sender (who already
+        // added the shape to local state optimistically in the client).
+        broadcastToRoom(roomId, ws, {
+          type: "draw_event",
+          roomId,
+          shapeType,
+          shapeData,
+          fromUserId: userId,
         });
       }
 
