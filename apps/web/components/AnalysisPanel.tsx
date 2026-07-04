@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useImperativeHandle, forwardRef } from "react";
-import { Scan, GitBranch, Code2, GripVertical } from "lucide-react";
+import { Scan, GitBranch, Code2, GripVertical, PanelRightClose, PanelRightOpen } from "lucide-react";
 import type { UIDetectionResult, LayoutNode, UIComponentType } from "@repo/pattern-detection";
 import type { ComponentAnnotation } from "./AnnotationEditor";
 import DetectionPanel from "./panels/DetectionPanel";
@@ -61,15 +61,26 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
 
   if (collapsed) {
     return (
-      <div className="analysis-collapsed" onClick={onToggleCollapse} title="Expand panel">
+      <button
+        type="button"
+        className="analysis-collapsed"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleCollapse?.();
+        }}
+        title="Expand analysis panel"
+        aria-label="Expand analysis panel"
+      >
         <div className="analysis-collapsed-icon">
-          <GripVertical size={16} style={{ transform: "rotate(90deg)", opacity: 0.5 }} />
-          <Scan size={14} style={{ marginTop: 12 }} />
+          <PanelRightOpen size={16} />
+          <GripVertical size={14} style={{ opacity: 0.45 }} />
+          <Scan size={14} />
           <GitBranch size={14} />
           <Code2 size={14} />
         </div>
-        <div className="analysis-collapsed-label" style={{ marginTop: 8 }}>Analysis Panel</div>
-      </div>
+        <div className="analysis-collapsed-label">Analysis</div>
+      </button>
     );
   }
 
@@ -79,6 +90,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
       <div className="panel-tabs">
         {TABS.map((tab) => (
           <button
+            type="button"
             key={tab.id}
             className={`panel-tab ${activeTab === tab.id ? "active" : ""}`}
             onClick={() => setActiveTab(tab.id)}
@@ -92,11 +104,17 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
         ))}
         {onToggleCollapse && (
           <button
+            type="button"
             className="panel-collapse-btn"
-            onClick={onToggleCollapse}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onToggleCollapse();
+            }}
             title="Collapse panel"
+            aria-label="Collapse analysis panel"
           >
-            ›
+            <PanelRightClose size={16} />
           </button>
         )}
       </div>

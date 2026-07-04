@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback } from "react";
-import { ChevronDown, ChevronRight, GripVertical } from "lucide-react";
+import { ChevronDown, ChevronRight, GripVertical, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 
 /* ────────────────────── palette data ────────────────────── */
 
@@ -135,12 +135,23 @@ export default function ComponentPalette({
 
   if (collapsed) {
     return (
-      <div className="palette-collapsed" onClick={onToggleCollapse}>
+      <button
+        type="button"
+        className="palette-collapsed"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleCollapse?.();
+        }}
+        title="Expand components palette"
+        aria-label="Expand components palette"
+      >
         <div className="palette-collapsed-icon">
-          <GripVertical size={16} />
+          <PanelLeftOpen size={16} />
+          <GripVertical size={14} style={{ opacity: 0.45 }} />
         </div>
         <div className="palette-collapsed-label">Components</div>
-      </div>
+      </button>
     );
   }
 
@@ -149,11 +160,17 @@ export default function ComponentPalette({
       <div className="palette-header">
         <span className="palette-title">⚡ Components</span>
         <button
+          type="button"
           className="palette-collapse-btn"
-          onClick={onToggleCollapse}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleCollapse?.();
+          }}
           title="Collapse palette"
+          aria-label="Collapse components palette"
         >
-          ‹
+          <PanelLeftClose size={16} />
         </button>
       </div>
 
@@ -164,6 +181,7 @@ export default function ComponentPalette({
           return (
             <div key={section.label} className="palette-section">
               <button
+                type="button"
                 className="palette-section-toggle"
                 onClick={() => toggleSection(section.label)}
               >

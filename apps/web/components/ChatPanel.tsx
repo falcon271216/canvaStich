@@ -4,6 +4,8 @@ import { useState, useRef, useEffect } from "react";
 import { Send, MessageCircle, X } from "lucide-react";
 
 export interface ChatMessage {
+  /** Stable unique React key — never use array index */
+  key: string;
   id?: number;
   userId: string;
   userName: string;
@@ -44,7 +46,17 @@ export default function ChatPanel({
 
   if (!isOpen) {
     return (
-      <button className="chat-toggle-btn" onClick={onToggle} title="Open chat">
+      <button
+        type="button"
+        className="chat-toggle-btn"
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggle();
+        }}
+        title="Open chat"
+        aria-label="Open chat"
+      >
         <MessageCircle size={18} />
         {messages.length > 0 && (
           <span className="chat-toggle-count">{messages.length}</span>
@@ -59,7 +71,17 @@ export default function ChatPanel({
         <span style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
           <MessageCircle size={14} /> Room Chat
         </span>
-        <button onClick={onToggle} className="chat-close-btn">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggle();
+          }}
+          className="chat-close-btn"
+          title="Close chat"
+          aria-label="Close chat"
+        >
           <X size={14} />
         </button>
       </div>
@@ -68,9 +90,9 @@ export default function ChatPanel({
         {messages.length === 0 && (
           <div className="chat-empty">No messages yet. Say hi! 👋</div>
         )}
-        {messages.map((msg, i) => (
+        {messages.map((msg) => (
           <div
-            key={msg.id ?? i}
+            key={msg.key}
             className={`chat-msg ${msg.userId === currentUserId ? "chat-msg-own" : ""}`}
           >
             <div className="chat-msg-name">{msg.userName}</div>

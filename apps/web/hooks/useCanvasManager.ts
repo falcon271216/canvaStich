@@ -6,13 +6,134 @@ import type { Point, LiveDetection } from "@repo/pattern-detection";
 import type { ToolType } from "../components/DrawingToolSelector";
 import { renderWireframeSymbol } from "../components/WireframeRenderers";
 
-const PATTERN_CONFIDENCE_THRESHOLD = 0.75; // Increased from 0.55 to be stricter
+const PATTERN_CONFIDENCE_THRESHOLD = 0.75;
+/** Minimum erase hit area so a click still removes the shape under the cursor */
+const MIN_ERASE_SIZE = 12;
 
 export type ShapeType = ToolType | "completion" | "analysis" | "emoji" | "clear_shape" | "wireframe";
 
-interface Shape {
+export interface Shape {
+  id: string;
   shapeType: ShapeType;
   shapeData: Record<string, unknown>;
+}
+
+export function createShapeId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `shape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function rectsOverlap(
+  a: { minX: number; minY: number; maxX: number; maxY: number },
+  b: { minX: number; minY: number; maxX: number; maxY: number },
+): boolean {
+  return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
+}
+
+function shapeIntersectsEraseRegion(
+  shape: Shape,
+  erase: { minX: number; minY: number; maxX: number; maxY: number },
+): boolean {
+  if (shape.shapeType === "pencil") {
+    const path = shape.shapeData.path as { x: number; y: number }[] | undefined;
+    if (!path?.length) return false;
+    // Point-in-rect, or segment crosses erase region
+    for (let i = 0; i < path.length; i++) {
+      const p = path[i]!;
+      if (p.x >= erase.minX && p.x <= erase.maxX && p.y >= erase.minY && p.y <= erase.maxY) {
+        return true;
+      }
+      if (i > 0) {
+        const prev = path[i - 1]!;
+        const segMinX = Math.min(prev.x, p.x);
+        const segMaxX = Math.max(prev.x, p.x);
+        const segMinY = Math.min(prev.y, p.y);
+        const segMaxY = Math.max(prev.y, p.y);
+        if (rectsOverlap(erase, { minX: segMinX, minY: segMinY, maxX: segMaxX, maxY: segMaxY })) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  if (shape.shapeType === "line") {
+    const { x1, y1, x2, y2 } = shape.shapeData as {
+      x1: number; y1: number; x2: number; y2: number;
+    };
+    // Endpoint hit
+    for (const [x, y] of [[x1, y1], [x2, y2]] as const) {
+      if (x >= erase.minX && x <= erase.maxX && y >= erase.minY && y <= erase.maxY) return true;
+    }
+    // Bounding-box overlap for the segment
+    return rectsOverlap(erase, {
+      minX: Math.min(x1, x2),
+      minY: Math.min(y1, y2),
+      maxX: Math.max(x1, x2),
+      maxY: Math.max(y1, y2),
+    });
+  }
+
+  if (shape.shapeType === "rectangle") {
+    const { x1, y1, x2, y2 } = shape.shapeData as {
+      x1: number; y1: number; x2: number; y2: number;
+    };
+    return rectsOverlap(erase, {
+      minX: Math.min(x1, x2),
+      minY: Math.min(y1, y2),
+      maxX: Math.max(x1, x2),
+      maxY: Math.max(y1, y2),
+    });
+  }
+
+  if (shape.shapeType === "wireframe" || shape.shapeType === "emoji") {
+    const data = shape.shapeData as { x?: number; y?: number; w?: number; h?: number };
+    if (data.x == null || data.y == null || data.w == null || data.h == null) return false;
+    return rectsOverlap(erase, {
+      minX: data.x,
+      minY: data.y,
+      maxX: data.x + data.w,
+      maxY: data.y + data.h,
+    });
+  }
+
+  if (shape.shapeType === "completion") {
+    const comp = shape.shapeData.completion as Record<string, unknown> | undefined;
+    if (!comp) return false;
+    if (typeof comp.cx === "number" && typeof comp.r === "number" && typeof comp.cy === "number") {
+      return rectsOverlap(erase, {
+        minX: comp.cx - comp.r,
+        minY: comp.cy - comp.r,
+        maxX: comp.cx + comp.r,
+        maxY: comp.cy + comp.r,
+      });
+    }
+    if (typeof comp.x === "number" && typeof comp.w === "number" && typeof comp.y === "number" && typeof comp.h === "number") {
+      return rectsOverlap(erase, {
+        minX: comp.x,
+        minY: comp.y,
+        maxX: comp.x + comp.w,
+        maxY: comp.y + comp.h,
+      });
+    }
+    if (Array.isArray(comp.path)) {
+      return (comp.path as { x: number; y: number }[]).some(
+        (p) => p.x >= erase.minX && p.x <= erase.maxX && p.y >= erase.minY && p.y <= erase.maxY,
+      );
+    }
+    if (typeof comp.x1 === "number" && typeof comp.y1 === "number" && typeof comp.x2 === "number" && typeof comp.y2 === "number") {
+      return rectsOverlap(erase, {
+        minX: Math.min(comp.x1, comp.x2, (comp.x3 as number) ?? comp.x1),
+        minY: Math.min(comp.y1, comp.y2, (comp.y3 as number) ?? comp.y1),
+        maxX: Math.max(comp.x1, comp.x2, (comp.x3 as number) ?? comp.x1),
+        maxY: Math.max(comp.y1, comp.y2, (comp.y3 as number) ?? comp.y1),
+      });
+    }
+  }
+
+  return false;
 }
 
 export function useCanvasManager({
@@ -22,27 +143,33 @@ export function useCanvasManager({
   color,
   strokeWidth,
   onSendDrawEventAction,
+  onEraseShapes,
 }: {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   tool: ToolType;
   shapes: Shape[];
   color: string;
   strokeWidth: number;
-  onSendDrawEventAction: (type: ShapeType, data: Record<string, unknown>) => void;
+  onSendDrawEventAction: (type: ShapeType, data: Record<string, unknown>, shapeId?: string) => void;
+  onEraseShapes: (shapeIds: string[]) => void;
 }) {
-  const [start, setStart] = useState<{ x: number; y: number } | null>(null);
+  const startRef = useRef<Point | null>(null);
   const isDrawing = useRef(false);
   const pencilPath = useRef<Point[]>([]);
-  /** Sliding window detector for real-time pattern feedback. */
   const slidingDetector = useRef(new SlidingWindowDetector({ windowSize: 32, step: 6 }));
-  /** Latest live detection to render ghost preview. */
   const [liveDetection, setLiveDetection] = useState<LiveDetection | null>(null);
-
   const getPos = (e: React.MouseEvent): Point => {
     const rect = canvasRef.current?.getBoundingClientRect();
+    const canvas = canvasRef.current;
+    if (!rect || !canvas) {
+      return { x: 0, y: 0, t: performance.now() };
+    }
+    // Map CSS pixels to canvas buffer coordinates (handles DPI / CSS scaling)
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
     return {
-      x: e.clientX - (rect?.left || 0),
-      y: e.clientY - (rect?.top || 0),
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
       t: performance.now(),
     };
   };
@@ -106,6 +233,10 @@ export function useCanvasManager({
       return;
     }
 
+    if (shape.shapeType === "clear_shape" || shape.shapeType === "eraser" || shape.shapeType === "analysis") {
+      return;
+    }
+
     ctx.beginPath();
     if (shape.shapeType === "line") {
       const { x1, y1, x2, y2 } = shape.shapeData as { x1: number; y1: number; x2: number; y2: number };
@@ -117,8 +248,8 @@ export function useCanvasManager({
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
     } else if (shape.shapeType === "pencil") {
       const { path } = shape.shapeData as { path: { x: number; y: number }[] };
-      if (path.length < 2) return;
-      
+      if (!path || path.length < 2) return;
+
       ctx.lineJoin = "round";
       ctx.lineCap = "round";
       const first = path[0];
@@ -129,14 +260,9 @@ export function useCanvasManager({
         if (p) ctx.lineTo(p.x, p.y);
       }
       ctx.stroke();
-    } else if (shape.shapeType === "eraser") {
-      // Eraser shapes are handled via shape removal in handleMouseUp.
-      // Nothing to render — the erased shapes are already removed from the array.
-      return;
     } else if (shape.shapeType === "emoji") {
       const { x, y, w, h, text } = shape.shapeData as { x: number; y: number; w: number; h: number; text: string };
-      // Calculate a reasonable size: at least 40px, but capped at 250px so it doesn't overflow the screen
-      const size = Math.min(Math.max(w, h, 40), 250); 
+      const size = Math.min(Math.max(w, h, 40), 250);
       ctx.font = `${size}px sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
@@ -162,7 +288,6 @@ export function useCanvasManager({
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     shapes.forEach((shape) => drawShape(ctx, shape));
 
-    // Draw ghost preview from sliding window detection
     if (liveDetection && liveDetection.smoothedConfidence >= 0.45) {
       ctx.save();
       ctx.globalAlpha = 0.3;
@@ -178,11 +303,12 @@ export function useCanvasManager({
       );
       ctx.restore();
     }
-  }, [shapes, liveDetection]);
+  }, [shapes, liveDetection, canvasRef]);
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (tool === "select") return;
     const pos = getPos(e);
-    setStart(pos);
+    startRef.current = pos;
     isDrawing.current = true;
 
     if (tool === "pencil") {
@@ -196,11 +322,11 @@ export function useCanvasManager({
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (!isDrawing.current) return;
     const pos = getPos(e);
+    const start = startRef.current;
 
     if (tool === "pencil") {
       pencilPath.current.push(pos);
 
-      // Feed the sliding window detector
       slidingDetector.current.addPoint(pos);
       const live = slidingDetector.current.getLatestDetection();
       if (live && live.smoothedConfidence >= 0.45) {
@@ -223,15 +349,15 @@ export function useCanvasManager({
         ctx.stroke();
       }
     } else if (tool === "eraser" || tool === "rectangle" || tool === "line") {
-      // Live preview — use latest renderCanvas so remote shapes are not erased
       renderCanvas();
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx || !start) return;
 
       if (tool === "eraser") {
         ctx.save();
-        ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
+        ctx.fillStyle = "rgba(239, 68, 68, 0.15)";
         ctx.strokeStyle = "#ef4444";
+        ctx.lineWidth = 1.5;
         ctx.setLineDash([5, 5]);
         ctx.fillRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
         ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
@@ -249,89 +375,49 @@ export function useCanvasManager({
         ctx.stroke();
       }
     }
-  }, [tool, color, strokeWidth, renderCanvas, start]);
+  }, [tool, color, strokeWidth, renderCanvas, canvasRef]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
-    if (!isDrawing.current || !start) return;
+    if (!isDrawing.current) return;
     isDrawing.current = false;
+
+    const start = startRef.current;
+    startRef.current = null;
+    if (!start) return;
 
     const end = getPos(e);
 
     if (tool === "eraser") {
-      // Compute the eraser rectangle (normalize coordinates)
-      const ex1 = Math.min(start.x, end.x);
-      const ey1 = Math.min(start.y, end.y);
-      const ex2 = Math.max(start.x, end.x);
-      const ey2 = Math.max(start.y, end.y);
+      let minX = Math.min(start.x, end.x);
+      let minY = Math.min(start.y, end.y);
+      let maxX = Math.max(start.x, end.x);
+      let maxY = Math.max(start.y, end.y);
 
-      // Find shapes that intersect the eraser region
-      const toRemove: Shape[] = [];
-      const toKeep: Shape[] = [];
-
-      for (const shape of shapes) {
-        let intersects = false;
-
-        if (shape.shapeType === "pencil") {
-          const path = (shape.shapeData as any).path as { x: number; y: number }[];
-          if (path) {
-            intersects = path.some(
-              (p) => p.x >= ex1 && p.x <= ex2 && p.y >= ey1 && p.y <= ey2
-            );
-          }
-        } else if (shape.shapeType === "line" || shape.shapeType === "rectangle") {
-          const { x1: sx1, y1: sy1, x2: sx2, y2: sy2 } = shape.shapeData as any;
-          // Check if the two rectangles overlap
-          const sMinX = Math.min(sx1, sx2);
-          const sMaxX = Math.max(sx1, sx2);
-          const sMinY = Math.min(sy1, sy2);
-          const sMaxY = Math.max(sy1, sy2);
-          intersects = !(sMaxX < ex1 || sMinX > ex2 || sMaxY < ey1 || sMinY > ey2);
-        } else if (shape.shapeType === "wireframe" || shape.shapeType === "emoji") {
-          const data = shape.shapeData as any;
-          if (data.x != null && data.w != null) {
-            intersects = !(
-              data.x + data.w < ex1 || data.x > ex2 ||
-              data.y + data.h < ey1 || data.y > ey2
-            );
-          }
-        } else if (shape.shapeType === "completion") {
-          const comp = (shape.shapeData as any).completion;
-          if (comp) {
-            if (comp.cx != null && comp.r != null) {
-              // Circle
-              intersects = !(
-                comp.cx + comp.r < ex1 || comp.cx - comp.r > ex2 ||
-                comp.cy + comp.r < ey1 || comp.cy - comp.r > ey2
-              );
-            } else if (comp.x != null && comp.w != null) {
-              intersects = !(
-                comp.x + comp.w < ex1 || comp.x > ex2 ||
-                comp.y + comp.h < ey1 || comp.y > ey2
-              );
-            } else if (comp.path) {
-              intersects = comp.path.some(
-                (p: any) => p.x >= ex1 && p.x <= ex2 && p.y >= ey1 && p.y <= ey2
-              );
-            }
-          }
-        }
-
-        if (intersects) {
-          toRemove.push(shape);
-        } else {
-          toKeep.push(shape);
-        }
+      // Click / tiny drag: expand to a usable hit target under the cursor
+      if (maxX - minX < MIN_ERASE_SIZE) {
+        const cx = (minX + maxX) / 2;
+        minX = cx - MIN_ERASE_SIZE / 2;
+        maxX = cx + MIN_ERASE_SIZE / 2;
+      }
+      if (maxY - minY < MIN_ERASE_SIZE) {
+        const cy = (minY + maxY) / 2;
+        minY = cy - MIN_ERASE_SIZE / 2;
+        maxY = cy + MIN_ERASE_SIZE / 2;
       }
 
-      // Remove intersecting shapes and broadcast clear events
-      if (toRemove.length > 0) {
-        for (const shape of toRemove) {
-          onSendDrawEventAction("clear_shape" as ShapeType, shape.shapeData);
-        }
-      }
+      const erase = { minX, minY, maxX, maxY };
+      const idsToRemove = shapes
+        .filter((shape) => shapeIntersectsEraseRegion(shape, erase))
+        .map((shape) => shape.id);
 
-      renderCanvas();
-    } else if (tool === "line" || tool === "rectangle") {
+      if (idsToRemove.length > 0) {
+        onEraseShapes(idsToRemove);
+      }
+      return;
+    }
+
+    if (tool === "line" || tool === "rectangle") {
+      const shapeId = createShapeId();
       const shapeData = {
         x1: start.x,
         y1: start.y,
@@ -340,14 +426,16 @@ export function useCanvasManager({
         stroke: color,
         lineWidth: strokeWidth,
       };
-      onSendDrawEventAction(tool, shapeData);
-      renderCanvas(); // Clear live preview
-    } else if (tool === "pencil") {
-      const pathData = { path: [...pencilPath.current], stroke: color, lineWidth: strokeWidth };
-      onSendDrawEventAction(tool, pathData);
+      onSendDrawEventAction(tool, shapeData, shapeId);
+      return;
+    }
 
-      if (tool === "pencil" && pencilPath.current.length >= 8) {
-        // Run both Tier 1 (DTW) and Tier 2 (ML) asynchronously
+    if (tool === "pencil") {
+      const shapeId = createShapeId();
+      const pathData = { path: [...pencilPath.current], stroke: color, lineWidth: strokeWidth };
+      onSendDrawEventAction(tool, pathData, shapeId);
+
+      if (pencilPath.current.length >= 8) {
         import("../lib/ml").then(({ predictPattern }) => {
           predictPattern(pencilPath.current).then((mlPredictions) => {
             const result = detectShape(pencilPath.current);
@@ -366,14 +454,13 @@ export function useCanvasManager({
                 strokeDuration: result.strokeFeatures?.duration ?? null,
                 meanSpeed: result.strokeFeatures?.meanSpeed ?? null,
                 speedPeaks: result.strokeFeatures?.speedPeaks ?? null,
-                mlPredictions: mlPredictions, // <-- Attaching TFJS Deep Learning Results
+                mlPredictions: mlPredictions,
               });
             } else if (mlPredictions && mlPredictions.length > 0) {
-              // If DTW failed to find a geometric shape, use the ML prediction
               const topPred = mlPredictions[0];
               if (topPred && topPred.probability > 0.4) {
                 onSendDrawEventAction("analysis", {
-                  completion: { type: "path", path: [...pencilPath.current], stroke: "#a855f7" }, // Highlight ML shapes
+                  completion: { type: "path", path: [...pencilPath.current], stroke: "#a855f7" },
                   detectedLabel: topPred.className,
                   confidence: topPred.probability,
                   method: "cnn",
@@ -390,22 +477,16 @@ export function useCanvasManager({
         });
       }
 
-      // Clean up sliding window state
-      if (tool === "pencil") {
-        setLiveDetection(null);
-        slidingDetector.current.reset();
-      }
+      setLiveDetection(null);
+      slidingDetector.current.reset();
     }
-
-    setStart(null);
-  }, [tool, start, color, strokeWidth, onSendDrawEventAction, renderCanvas, shapes]);
+  }, [tool, color, strokeWidth, onSendDrawEventAction, onEraseShapes, shapes]);
 
   return {
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
     renderCanvas,
-    /** Current live detection from the sliding window (null if none). */
     liveDetection,
   };
 }

@@ -93,25 +93,29 @@ wss.on("connection", async (ws, request) => {
 
       /* ── Room join/leave ── */
       if (msg.type === "join_room") {
-        client.rooms.push(msg.roomId);
+        const roomId = String(msg.roomId);
+        if (!client.rooms.includes(roomId)) {
+          client.rooms.push(roomId);
+        }
         updateActiveRooms();
         // Notify others in the room
-        broadcastToRoom(msg.roomId, ws, {
+        broadcastToRoom(roomId, ws, {
           type: "user_joined",
           userId,
           userName: client.userName,
         });
         // Send list of current users in room to the new joiner
         const roomUsers = clients
-          .filter((c) => c.rooms.includes(msg.roomId) && c.ws.readyState === WebSocket.OPEN)
+          .filter((c) => c.rooms.includes(roomId) && c.ws.readyState === WebSocket.OPEN)
           .map((c) => ({ userId: c.userId, userName: c.userName }));
         ws.send(JSON.stringify({ type: "room_users", users: roomUsers }));
       }
 
       if (msg.type === "leave_room") {
-        client.rooms = client.rooms.filter((id) => id !== msg.roomId);
+        const roomId = String(msg.roomId);
+        client.rooms = client.rooms.filter((id) => id !== roomId);
         updateActiveRooms();
-        broadcastToRoom(msg.roomId, ws, {
+        broadcastToRoom(roomId, ws, {
           type: "user_left",
           userId,
         });
@@ -119,7 +123,8 @@ wss.on("connection", async (ws, request) => {
 
       /* ── Draw events ── */
       if (msg.type === "draw_event") {
-        const { roomId, shapeType, shapeData } = msg;
+        const roomId = String(msg.roomId);
+        const { shapeType, shapeData } = msg;
         drawEventsTotal.inc({ shape_type: shapeType ?? "unknown" });
 
         // Save to DB (only if roomId is a valid integer)
@@ -151,7 +156,8 @@ wss.on("connection", async (ws, request) => {
 
       /* ── Cursor movement ── */
       if (msg.type === "cursor_move") {
-        const { roomId, x, y, color } = msg;
+        const roomId = String(msg.roomId);
+        const { x, y, color } = msg;
         broadcastToRoom(roomId, ws, {
           type: "cursor_move",
           userId,
@@ -164,7 +170,8 @@ wss.on("connection", async (ws, request) => {
 
       /* ── Chat messages ── */
       if (msg.type === "chat_message") {
-        const { roomId, content } = msg;
+        const roomId = String(msg.roomId);
+        const content = msg.content;
         if (!isNaN(Number(roomId)) && content) {
           try {
             const saved = await prismaClient.message.create({
@@ -174,7 +181,7 @@ wss.on("connection", async (ws, request) => {
                 content: String(content),
               },
             });
-            // Broadcast to ALL in room (including sender)
+            // Broadcast to ALL in room (including sender) for confirmation + live sync
             const chatMsg = JSON.stringify({
               type: "chat_message",
               id: saved.id,

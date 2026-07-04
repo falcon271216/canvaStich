@@ -2,7 +2,12 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useDrawingSocket } from "../hooks/useDrawingSocket";
-import { useCanvasManager, type ShapeType } from "../hooks/useCanvasManager";
+import {
+  useCanvasManager,
+  createShapeId,
+  type Shape,
+  type ShapeType,
+} from "../hooks/useCanvasManager";
 import DrawingToolSelector, { ToolType } from "./DrawingToolSelector";
 import { Cpu, Zap, ArrowLeft, BarChart3, Radio, Users } from "lucide-react";
 import AnalysisPanel, { type AnalysisPanelHandle } from "./AnalysisPanel";
@@ -25,8 +30,6 @@ import {
   upgradeWithCompositeSymbols,
 } from "@repo/pattern-detection";
 import { getComponentColor } from "./panels/DetectionPanel";
-
-type Shape = { shapeType: ShapeType; shapeData: Record<string, unknown> };
 
 export default function DrawingBoard({ roomId, token }: { roomId: string; token: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -77,6 +80,8 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   /* ── Identity state ── */
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myUserName, setMyUserName] = useState<string>("You");
+  const myUserIdRef = useRef<string | null>(null);
 
   /* ── Room users state ── */
   const [roomUsers, setRoomUsers] = useState<{ userId: string; userName: string }[]>([]);
@@ -88,14 +93,35 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       // All draw_event messages received here are from OTHER users —
       // the server (broadcastToRoom) already excludes the sender.
       if (event.shapeType === "clear_shape") {
-        setShapes((prev) => prev.filter(s =>
-          JSON.stringify(s.shapeData) !== JSON.stringify(event.shapeData)
-        ));
+        const data = event.shapeData as {
+          shapeIds?: string[];
+          shapeId?: string;
+          shapes?: Record<string, unknown>[];
+        };
+        const ids = new Set(
+          data.shapeIds ?? (data.shapeId ? [data.shapeId] : []),
+        );
+        const payloads = (data.shapes ?? []).map((s) => JSON.stringify(s));
+        if (ids.size === 0 && payloads.length === 0) return;
+        setShapes((prev) =>
+          prev.filter((s) => {
+            if (ids.has(s.id)) return false;
+            if (payloads.includes(JSON.stringify(s.shapeData))) return false;
+            return true;
+          }),
+        );
       } else if (event.shapeType !== "analysis") {
-        setShapes((prev) => [
-          ...prev,
-          { shapeType: event.shapeType as ShapeType, shapeData: event.shapeData as Record<string, unknown> },
-        ]);
+        const data = event.shapeData as Record<string, unknown>;
+        const id =
+          (typeof data.__id === "string" && data.__id) || createShapeId();
+        const { __id: _omit, ...shapeData } = data;
+        setShapes((prev) => {
+          if (prev.some((s) => s.id === id)) return prev;
+          return [
+            ...prev,
+            { id, shapeType: event.shapeType as ShapeType, shapeData },
+          ];
+        });
       }
     },
     onCursorMoveAction: (data) => {
@@ -104,21 +130,33 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     },
     onChatMessageAction: (msg) => {
       setChatMessages((prev) => {
-        // Deduplicate: if a message with this DB id already exists, replace the optimistic one
-        if (msg.id) {
-          const existingIdx = prev.findIndex((m) => m.id === msg.id);
-          if (existingIdx !== -1) return prev; // already have this message
+        const serverMsg: ChatMessage = {
+          key: msg.id != null ? `msg-${msg.id}` : `live-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: msg.id,
+          userId: msg.userId,
+          userName: msg.userName,
+          content: msg.content,
+          createdAt: msg.createdAt,
+        };
+
+        // Already have this DB message
+        if (serverMsg.id != null && prev.some((m) => m.id === serverMsg.id)) {
+          return prev;
         }
-        // Replace optimistic placeholder (no id, same user + content) with the real server message
-        const pendingIdx = prev.findIndex(
-          (m) => !m.id && m.userId === msg.userId && m.content === msg.content
-        );
+
+        // Replace optimistic placeholder (no id, same content; match user when known)
+        const pendingIdx = prev.findIndex((m) => {
+          if (m.id != null || m.content !== serverMsg.content) return false;
+          if (!m.userId || !serverMsg.userId) return true;
+          return m.userId === serverMsg.userId;
+        });
         if (pendingIdx !== -1) {
           const next = [...prev];
-          next[pendingIdx] = msg;
+          next[pendingIdx] = { ...serverMsg, key: prev[pendingIdx]!.key };
           return next;
         }
-        return [...prev, msg];
+
+        return [...prev, serverMsg];
       });
     },
     onUserJoinedAction: (user) => {
@@ -137,6 +175,8 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     },
     onIdentityAction: (data) => {
       setMyUserId(data.userId);
+      myUserIdRef.current = data.userId;
+      if (data.userName) setMyUserName(data.userName);
     },
   });
 
@@ -187,29 +227,109 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     return () => window.removeEventListener("keydown", handler);
   }, [handleUndo, handleRedo]);
 
-  /* ── Load initial drawings ── */
+  /* ── Load initial drawings (replay clear_shape so erasures persist) ── */
   const apiBase = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
   useEffect(() => {
     fetch(`${apiBase}/drawings/${roomId}`)
       .then((res) => res.json())
       .then((data) => {
         const list = (data.drawings ?? []) as { type?: string; data?: unknown }[];
-        const loaded = list.map((d) => ({
-          shapeType: (d.type ?? "pencil") as ShapeType,
-          shapeData: (d.data ?? {}) as Record<string, unknown>,
-        }));
+        const byId = new Map<string, Shape>();
+
+        for (const d of list) {
+          const type = (d.type ?? "pencil") as ShapeType;
+          const raw = (d.data ?? {}) as Record<string, unknown>;
+
+          if (type === "clear_shape") {
+            const ids = (raw.shapeIds as string[] | undefined)
+              ?? (typeof raw.shapeId === "string" ? [raw.shapeId] : []);
+            for (const id of ids) byId.delete(id);
+
+            const payloads = (raw.shapes as Record<string, unknown>[] | undefined) ?? [];
+            for (const payload of payloads) {
+              const legacy = JSON.stringify(payload);
+              for (const [id, shape] of byId) {
+                if (JSON.stringify(shape.shapeData) === legacy) byId.delete(id);
+              }
+            }
+
+            // Oldest format: clear payload was the full shapeData object
+            if (ids.length === 0 && payloads.length === 0) {
+              const legacy = JSON.stringify(raw);
+              for (const [id, shape] of byId) {
+                if (JSON.stringify(shape.shapeData) === legacy) byId.delete(id);
+              }
+            }
+            continue;
+          }
+
+          if (type === "analysis" || type === "eraser") continue;
+
+          const id =
+            (typeof raw.__id === "string" && raw.__id) || createShapeId();
+          const { __id: _omit, ...shapeData } = raw;
+          byId.set(id, { id, shapeType: type, shapeData });
+        }
+
+        const loaded = Array.from(byId.values());
         prevShapesRef.current = loaded;
         setShapes(loaded);
       })
       .catch(() => {});
   }, [roomId, apiBase]);
 
-  /* ── Load chat history ── */
+  /* ── Load chat history (merge so live messages are not wiped) ── */
   useEffect(() => {
     fetch(`${apiBase}/messages/${roomId}`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.messages) setChatMessages(data.messages);
+        const history = (data.messages ?? []) as Array<{
+          id?: number;
+          userId: string;
+          userName: string;
+          content: string;
+          createdAt: string;
+        }>;
+        if (history.length === 0) return;
+
+        setChatMessages((prev) => {
+          const byId = new Map<number, ChatMessage>();
+          const pending: ChatMessage[] = [];
+
+          for (const m of prev) {
+            if (m.id != null) byId.set(m.id, m);
+            else pending.push(m);
+          }
+          for (const m of history) {
+            if (m.id == null) continue;
+            if (!byId.has(m.id)) {
+              byId.set(m.id, {
+                key: `msg-${m.id}`,
+                id: m.id,
+                userId: m.userId,
+                userName: m.userName,
+                content: m.content,
+                createdAt: m.createdAt,
+              });
+            }
+          }
+
+          const merged = Array.from(byId.values()).sort(
+            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+          );
+
+          // Keep optimistic messages that history has not confirmed yet
+          for (const p of pending) {
+            const confirmed = merged.some(
+              (m) =>
+                m.content === p.content &&
+                (!p.userId || !m.userId || m.userId === p.userId),
+            );
+            if (!confirmed) merged.push(p);
+          }
+
+          return merged;
+        });
       })
       .catch(() => {});
   }, [roomId, apiBase]);
@@ -383,18 +503,29 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     shapes,
     color,
     strokeWidth,
-    onSendDrawEventAction: (type, data) => {
-      // Always add to local state immediately so detection pipeline works
-      // even when WebSocket is not connected
-      if (type === "clear_shape") {
-        setShapes(prev => prev.filter(s =>
-          JSON.stringify(s.shapeData) !== JSON.stringify(data)
-        ));
-      } else if (type !== "analysis") {
-        setShapes(prev => [...prev, { shapeType: type as ShapeType, shapeData: data }]);
+    onSendDrawEventAction: (type, data, shapeId) => {
+      if (type === "analysis") {
+        sendDrawEvent(type, data);
+        return;
       }
-      // Also broadcast via WebSocket for collaboration
-      sendDrawEvent(type, data);
+      const id = shapeId ?? createShapeId();
+      setShapes((prev) => {
+        if (prev.some((s) => s.id === id)) return prev;
+        return [...prev, { id, shapeType: type as ShapeType, shapeData: data }];
+      });
+      // Embed id so collaborators and history reload can match erasures
+      sendDrawEvent(type, { ...data, __id: id });
+    },
+    onEraseShapes: (shapeIds) => {
+      if (shapeIds.length === 0) return;
+      const idSet = new Set(shapeIds);
+      const removed = shapes.filter((s) => idSet.has(s.id));
+      setShapes((prev) => prev.filter((s) => !idSet.has(s.id)));
+      sendDrawEvent("clear_shape", {
+        shapeIds,
+        // Payloads let history replay work even if ids were regenerated on load
+        shapes: removed.map((s) => s.shapeData),
+      });
     },
   });
 
@@ -450,7 +581,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     const canvasX = x - rect.left;
     const canvasY = y - rect.top;
 
-    // Create a wireframe shape
+    const shapeId = createShapeId();
     const wireframeData: Record<string, unknown> = {
       wireframeType: item.id,
       x: canvasX - item.defaultSize.w / 2,
@@ -461,9 +592,11 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       lineWidth: 1.5,
     };
 
-    // Add to local state (as a 'wireframe' shape) AND as pencil-equivalent for detection
-    setShapes(prev => [...prev, { shapeType: "wireframe" as ShapeType, shapeData: wireframeData }]);
-    sendDrawEvent("wireframe" as ShapeType, wireframeData);
+    setShapes((prev) => [
+      ...prev,
+      { id: shapeId, shapeType: "wireframe" as ShapeType, shapeData: wireframeData },
+    ]);
+    sendDrawEvent("wireframe" as ShapeType, { ...wireframeData, __id: shapeId });
   }, [sendDrawEvent]);
 
   /* ── Canvas drag-over / drop handlers ── */
@@ -550,34 +683,47 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   const handleDeleteComponent = useCallback((id: string) => {
     if (id.startsWith('wf_')) {
       const wfIdx = parseInt(id.replace('wf_', ''), 10);
-      setShapes(prev => {
+      setShapes((prev) => {
         let wfCount = 0;
-        return prev.filter(s => {
+        let removedId: string | null = null;
+        const next = prev.filter((s) => {
           if (s.shapeType !== 'wireframe') return true;
-          return wfCount++ !== wfIdx;
+          if (wfCount++ === wfIdx) {
+            removedId = s.id;
+            return false;
+          }
+          return true;
         });
+        if (removedId) sendDrawEvent("clear_shape", { shapeIds: [removedId] });
+        return next;
       });
     }
     setSelectedComponentId(null);
-  }, []);
+  }, [sendDrawEvent]);
 
   const handleDuplicateComponent = useCallback((id: string) => {
     if (id.startsWith('wf_')) {
       const wfIdx = parseInt(id.replace('wf_', ''), 10);
-      setShapes(prev => {
+      setShapes((prev) => {
         let wfCount = 0;
         let duplicatedShape: Shape | null = null;
         for (const s of prev) {
           if (s.shapeType === 'wireframe') {
             if (wfCount++ === wfIdx) {
+              const shapeId = createShapeId();
               duplicatedShape = {
-                ...s,
+                id: shapeId,
+                shapeType: s.shapeType,
                 shapeData: {
                   ...s.shapeData,
-                  x: (s.shapeData as any).x + 20,
-                  y: (s.shapeData as any).y + 20,
-                }
+                  x: (s.shapeData as { x: number }).x + 20,
+                  y: (s.shapeData as { y: number }).y + 20,
+                },
               };
+              sendDrawEvent("wireframe", {
+                ...duplicatedShape.shapeData,
+                __id: shapeId,
+              });
               break;
             }
           }
@@ -585,7 +731,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         return duplicatedShape ? [...prev, duplicatedShape] : prev;
       });
     }
-  }, []);
+  }, [sendDrawEvent]);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", overflow: "hidden" }}>
@@ -676,6 +822,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
                 handleMouseDown(e);
               }}
               onMouseUp={handleMouseUp}
+              onMouseLeave={handleMouseUp}
               onMouseMove={combinedMouseMove}
               onDoubleClick={handleCanvasDoubleClick}
               onDragOver={handleCanvasDragOver}
@@ -759,13 +906,17 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           <ChatPanel
             messages={chatMessages}
             onSendMessage={(content) => {
-              // Optimistic: add message locally immediately so it feels instant
-              setChatMessages((prev) => [...prev, {
-                userId: myUserId ?? "",
-                userName: "You",
-                content,
-                createdAt: new Date().toISOString(),
-              }]);
+              const pendingKey = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+              setChatMessages((prev) => [
+                ...prev,
+                {
+                  key: pendingKey,
+                  userId: myUserIdRef.current ?? myUserId ?? "",
+                  userName: myUserName,
+                  content,
+                  createdAt: new Date().toISOString(),
+                },
+              ]);
               sendChatMessage(content);
             }}
             isOpen={chatOpen}

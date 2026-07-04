@@ -84,7 +84,7 @@ export function useDrawingSocket({
     wsRef.current = ws;
 
     ws.onopen = () => {
-      ws.send(JSON.stringify({ type: "join_room", roomId }));
+      ws.send(JSON.stringify({ type: "join_room", roomId: String(roomId) }));
     };
 
     ws.onmessage = (msg) => {
@@ -118,7 +118,7 @@ export function useDrawingSocket({
 
     return () => {
       if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "leave_room", roomId }));
+        ws.send(JSON.stringify({ type: "leave_room", roomId: String(roomId) }));
       }
       ws.close();
     };
@@ -130,7 +130,7 @@ export function useDrawingSocket({
     socket.send(
       JSON.stringify({
         type: "draw_event",
-        roomId,
+        roomId: String(roomId),
         shapeType: type,
         shapeData: data,
       })
@@ -143,7 +143,7 @@ export function useDrawingSocket({
     socket.send(
       JSON.stringify({
         type: "cursor_move",
-        roomId,
+        roomId: String(roomId),
         x,
         y,
         color: color || "#6366f1",
@@ -157,7 +157,7 @@ export function useDrawingSocket({
     socket.send(
       JSON.stringify({
         type: "chat_message",
-        roomId,
+        roomId: String(roomId),
         content,
       })
     );
