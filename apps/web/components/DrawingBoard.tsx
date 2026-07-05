@@ -30,6 +30,7 @@ import {
   upgradeWithCompositeSymbols,
 } from "@repo/pattern-detection";
 import { getComponentColor } from "./panels/DetectionPanel";
+import PanelResizeHandle from "./PanelResizeHandle";
 import { useBoardViewport } from "../hooks/useBoardViewport";
 import { applyCameraTransform, screenToWorld } from "../lib/viewportCoords";
 import { Minus, Plus, Maximize2 } from "lucide-react";
@@ -65,9 +66,24 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   /* ── Palette state ── */
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  const [paletteWidth, setPaletteWidth] = useState(200);
 
   /* ── Analysis Panel state ── */
   const [analysisPanelCollapsed, setAnalysisPanelCollapsed] = useState(false);
+  const [analysisPanelWidth, setAnalysisPanelWidth] = useState(320);
+
+  const clampPaletteWidth = useCallback((w: number) => Math.min(420, Math.max(160, w)), []);
+  const clampAnalysisWidth = useCallback((w: number) => Math.min(560, Math.max(240, w)), []);
+
+  const handlePaletteResize = useCallback(
+    (deltaX: number) => setPaletteWidth((w) => clampPaletteWidth(w + deltaX)),
+    [clampPaletteWidth],
+  );
+
+  const handleAnalysisResize = useCallback(
+    (deltaX: number) => setAnalysisPanelWidth((w) => clampAnalysisWidth(w + deltaX)),
+    [clampAnalysisWidth],
+  );
 
   /* ── Annotation state ── */
   const [annotations, setAnnotations] = useState<Map<string, ComponentAnnotation>>(new Map());
@@ -489,8 +505,20 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   }, [runDetectionPipeline]);
 
   const handleSelectComponent = useCallback((id: string) => {
-    setSelectedComponentId(prev => prev === id ? null : id);
+    setTool("select");
+    setSelectedComponentId((prev) => (prev === id ? null : id));
   }, []);
+
+  const hasDrawableContent = shapes.some(
+    (s) => s.shapeType === "pencil" || s.shapeType === "wireframe",
+  );
+
+  const handleAutoDrawMagic = useCallback(() => {
+    runDetectionPipeline();
+    setAnalysisPanelCollapsed(false);
+    analysisPanelRef.current?.switchToTab("code");
+    setAutoGenerate(true);
+  }, [runDetectionPipeline]);
 
   const handleUpdateNodeType = useCallback((nodeId: string, newType: UIComponentType) => {
     if (layoutTree) {
@@ -614,27 +642,42 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     sendDrawEvent("wireframe" as ShapeType, { ...wireframeData, __id: shapeId });
   }, [sendDrawEvent, viewport]);
 
-  /* ── Canvas drag-over / drop handlers ── */
-  const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
+  /* ── Canvas drag-over / drop handlers (on viewport — canvas ignores events in select mode) ── */
+  const [isPaletteDragOver, setIsPaletteDragOver] = useState(false);
+
+  const handleViewportDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes("text/plain")) return;
     e.preventDefault();
+    e.stopPropagation();
     e.dataTransfer.dropEffect = "copy";
-    canvasRef.current?.classList.add("drag-over");
+    setIsPaletteDragOver(true);
   }, []);
 
-  const handleCanvasDragLeave = useCallback(() => {
-    canvasRef.current?.classList.remove("drag-over");
+  const handleViewportDragLeave = useCallback((e: React.DragEvent) => {
+    const related = e.relatedTarget as Node | null;
+    if (related && e.currentTarget.contains(related)) return;
+    setIsPaletteDragOver(false);
   }, []);
 
-  const handleCanvasDrop = useCallback((e: React.DragEvent) => {
+  const handleViewportDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
-    canvasRef.current?.classList.remove("drag-over");
+    e.stopPropagation();
+    setIsPaletteDragOver(false);
     try {
       const itemData = JSON.parse(e.dataTransfer.getData("text/plain"));
       if (itemData?.id && itemData?.defaultSize) {
         handlePaletteDrop({ item: itemData, x: e.clientX, y: e.clientY });
       }
-    } catch {}
+    } catch {
+      /* ignore malformed drag payload */
+    }
   }, [handlePaletteDrop]);
+
+  useEffect(() => {
+    const clearPaletteDrag = () => setIsPaletteDragOver(false);
+    window.addEventListener("dragend", clearPaletteDrag);
+    return () => window.removeEventListener("dragend", clearPaletteDrag);
+  }, []);
 
   /* ── Double-click to annotate ── */
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent) => {
@@ -666,14 +709,23 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     setEditingAnnotation(null);
   }, []);
 
-  const handleUpdateBBox = useCallback((id: string, newBBox: { x: number; y: number; width: number; height: number }) => {
-    if (id.startsWith('wf_')) {
-      const wfIdx = parseInt(id.replace('wf_', ''), 10);
-      setShapes(prev => {
-        // Find the Nth wireframe in the original array order (0-indexed)
+  const handleUpdateBBox = useCallback((
+    id: string,
+    newBBox: { x: number; y: number; width: number; height: number },
+    baseBBox?: { x: number; y: number; width: number; height: number },
+  ) => {
+    const scaleFrom = baseBBox ?? detections.find((d) => d.id === id)?.boundingBox;
+
+    setDetections((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, boundingBox: newBBox } : d)),
+    );
+
+    if (id.startsWith("wf_")) {
+      const wfIdx = parseInt(id.replace("wf_", ""), 10);
+      setShapes((prev) => {
         let wfCount = 0;
-        return prev.map(s => {
-          if (s.shapeType !== 'wireframe') return s;
+        return prev.map((s) => {
+          if (s.shapeType !== "wireframe") return s;
           if (wfCount++ === wfIdx) {
             return {
               ...s,
@@ -683,17 +735,42 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
                 y: newBBox.y,
                 w: newBBox.width,
                 h: newBBox.height,
-              }
+              },
             };
           }
           return s;
         });
       });
-    } else {
-      // Freehand scaling (complex) — simply update detections locally to feel responsive
-      setDetections(prev => prev.map(d => d.id === id ? { ...d, boundingBox: newBBox } : d));
+      requestAnimationFrame(() => renderCanvas());
+      return;
     }
-  }, []);
+
+    if (!scaleFrom || scaleFrom.width <= 0 || scaleFrom.height <= 0) return;
+
+    const scalePath = (path: { x: number; y: number; t?: number }[]) =>
+      path.map((p) => ({
+        ...p,
+        x: newBBox.x + ((p.x - scaleFrom.x) / scaleFrom.width) * newBBox.width,
+        y: newBBox.y + ((p.y - scaleFrom.y) / scaleFrom.height) * newBBox.height,
+      }));
+
+    if (id.startsWith("comp_")) {
+      const idx = parseInt(id.replace("comp_", ""), 10);
+      setShapes((prev) => {
+        let pencilCount = 0;
+        return prev.map((s) => {
+          if (s.shapeType !== "pencil") return s;
+          if (pencilCount++ !== idx) return s;
+          const path = (s.shapeData as { path?: { x: number; y: number }[] }).path;
+          if (!path?.length) return s;
+          return {
+            ...s,
+            shapeData: { ...s.shapeData, path: scalePath(path) },
+          };
+        });
+      });
+    }
+  }, [detections, renderCanvas]);
 
   const handleDeleteComponent = useCallback((id: string) => {
     if (id.startsWith('wf_')) {
@@ -749,7 +826,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   }, [sendDrawEvent]);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%", overflow: "hidden" }}>
+    <div className="draw-workspace-root">
       {/* Header Navigation */}
       <nav className="nav">
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
@@ -816,23 +893,41 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       </nav>
 
       {/* Main Workspace Area */}
-      <div style={{ display: "flex", flex: 1, width: "100%", overflow: "hidden" }}>
-        {/* Component Palette (left sidebar) */}
+      <div className="workspace-main">
         <ComponentPalette
           onDrop={handlePaletteDrop}
           collapsed={paletteCollapsed}
           onToggleCollapse={() => setPaletteCollapsed(prev => !prev)}
+          width={paletteWidth}
         />
+
+        {!paletteCollapsed && (
+          <PanelResizeHandle side="left" onResize={handlePaletteResize} />
+        )}
 
         <div className="draw-board" ref={containerRef}>
           <div
             ref={viewportRef}
-            className={`draw-board-viewport${isSpaceDown ? " space-pressed" : ""}${isPanning ? " is-panning" : ""}`}
+            className={`draw-board-viewport${isSpaceDown ? " space-pressed" : ""}${isPanning ? " is-panning" : ""}${isPaletteDragOver ? " drag-over" : ""}`}
             style={gridStyle}
             onPointerDownCapture={handleViewportPointerDown}
             onPointerMove={handleViewportPointerMove}
             onPointerUp={handleViewportPointerUp}
             onPointerCancel={handleViewportPointerUp}
+            onDragOver={handleViewportDragOver}
+            onDragEnter={handleViewportDragOver}
+            onDragLeave={handleViewportDragLeave}
+            onDrop={handleViewportDrop}
+            onPointerDown={(e) => {
+              if (tool !== "select") return;
+              const target = e.target as HTMLElement;
+              if (
+                target === e.currentTarget ||
+                target.classList.contains("draw-canvas")
+              ) {
+                setSelectedComponentId(null);
+              }
+            }}
             onMouseDown={(e) => {
               if (e.button === 1) e.preventDefault();
             }}
@@ -846,6 +941,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               height={viewportSize.h}
               className="draw-canvas"
               style={{
+                pointerEvents: tool === "select" ? "none" : "auto",
                 cursor: isSpaceDown || isPanning
                   ? isPanning ? "grabbing" : "grab"
                   : tool === "eraser"
@@ -856,6 +952,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               }}
               onMouseDown={(e) => {
                 if (shouldPan(e)) return;
+                if (tool === "select") return;
                 if (selectedComponentId) setSelectedComponentId(null);
                 handleMouseDown(e);
               }}
@@ -868,12 +965,12 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               }}
               onMouseMove={combinedMouseMove}
               onDoubleClick={handleCanvasDoubleClick}
-              onDragOver={handleCanvasDragOver}
-              onDragLeave={handleCanvasDragLeave}
-              onDrop={handleCanvasDrop}
             />
 
-            <div className="draw-board-scene" style={sceneStyle}>
+            <div
+              className={`draw-board-scene${isPaletteDragOver ? " is-palette-drag" : ""}`}
+              style={sceneStyle}
+            >
               {eraserPreview && (
                 <div
                   className="eraser-preview"
@@ -886,7 +983,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
                 />
               )}
 
-              {detections.length > 0 && tool === "select" && (
+              {detections.length > 0 && (tool === "select" || selectedComponentId) && (
                 <TransformOverlay
                   detections={detections as any}
                   selectedId={selectedComponentId}
@@ -945,32 +1042,6 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
             <span>UI components detected via <strong>SketchUI</strong> pipeline</span>
           </div>
 
-          {/* AutoDraw Magic → Premium UI Generation */}
-          {shapes.filter(s => s.shapeType === "pencil" || s.shapeType === "wireframe").length > 0 && (
-            <button
-              onClick={() => {
-                // 1. Force re-run detection pipeline
-                runDetectionPipeline();
-
-                // 2. Show component count
-                const count = detections.length;
-                console.log(`✨ ${count} components detected → generating premium UI...`);
-
-                // 3. Expand the panel
-                setAnalysisPanelCollapsed(false);
-
-                // 4. Switch to Code tab
-                analysisPanelRef.current?.switchToTab("code");
-
-                // 5. Trigger auto-generation
-                setAutoGenerate(true);
-              }}
-              className="autodraw-magic-btn"
-            >
-              ✨ AutoDraw Magic
-            </button>
-          )}
-
           {/* Chat panel */}
           <ChatPanel
             messages={chatMessages}
@@ -1005,6 +1076,10 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           )}
         </div>
 
+        {!analysisPanelCollapsed && (
+          <PanelResizeHandle side="right" onResize={handleAnalysisResize} />
+        )}
+
         {/* SketchUI 3-Tab Panel */}
         <AnalysisPanel
           ref={analysisPanelRef}
@@ -1020,23 +1095,43 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           annotations={annotations}
           collapsed={analysisPanelCollapsed}
           onToggleCollapse={() => setAnalysisPanelCollapsed(prev => !prev)}
+          width={analysisPanelWidth}
         />
       </div>
 
       {/* Status Bar */}
       <div className="draw-status">
-        <div className="draw-status-item">
-          <span className="draw-status-dot" />
-          Connected
+        <div className="draw-status-start">
+          <div className="draw-status-item">
+            <span className="draw-status-dot" />
+            Connected
+          </div>
+          <div className="draw-status-item">
+            Room #{roomId}
+          </div>
         </div>
-        <div className="draw-status-item">
-          Room #{roomId}
+
+        <div className="draw-status-center">
+          {hasDrawableContent && (
+            <button
+              type="button"
+              className="autodraw-magic-btn"
+              title="AutoDraw Magic"
+              aria-label="AutoDraw Magic"
+              onClick={handleAutoDrawMagic}
+            >
+              ✨
+            </button>
+          )}
         </div>
-        <div className="draw-status-item">
-          Ctrl+Z Undo · Ctrl+Y Redo · Scroll to pan · Ctrl+Scroll to zoom · Space+drag to pan
-        </div>
-        <div className="draw-status-item">
-          DTW + Geometric Heuristics
+
+        <div className="draw-status-end">
+          <div className="draw-status-item draw-status-shortcuts">
+            Ctrl+Z Undo · Ctrl+Y Redo · Scroll to pan · Ctrl+Scroll to zoom · Space+drag to pan
+          </div>
+          <div className="draw-status-item">
+            DTW + Geometric Heuristics
+          </div>
         </div>
       </div>
     </div>

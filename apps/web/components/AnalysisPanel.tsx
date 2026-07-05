@@ -23,6 +23,7 @@ interface AnalysisPanelProps {
   annotations?: Map<string, ComponentAnnotation>;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  width?: number;
 }
 
 export interface AnalysisPanelHandle {
@@ -49,6 +50,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
     annotations,
     collapsed = false,
     onToggleCollapse,
+    width = 320,
   },
   ref,
 ) {
@@ -85,7 +87,10 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
   }
 
   return (
-    <div className="analysis-panel">
+    <div
+      className="analysis-panel"
+      style={{ width, minWidth: width, flex: `0 0 ${width}px` }}
+    >
       {/* Tab bar */}
       <div className="panel-tabs">
         {TABS.map((tab) => (

@@ -85,12 +85,14 @@ interface ComponentPaletteProps {
   onDrop: (event: PaletteDropEvent) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  width?: number;
 }
 
 export default function ComponentPalette({
   onDrop,
   collapsed = false,
   onToggleCollapse,
+  width = 200,
 }: ComponentPaletteProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(["Layout", "Content", "Forms"])
@@ -156,7 +158,10 @@ export default function ComponentPalette({
   }
 
   return (
-    <div className="palette-sidebar">
+    <div
+      className="palette-sidebar"
+      style={{ width, minWidth: width, flex: `0 0 ${width}px` }}
+    >
       <div className="palette-header">
         <span className="palette-title">⚡ Components</span>
         <button
