@@ -20,8 +20,7 @@ interface TransformOverlayProps {
   onOpenAnnotation: (id: string) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
-  canvasWidth: number;
-  canvasHeight: number;
+  zoom?: number;
 }
 
 export function TransformOverlay({
@@ -32,9 +31,10 @@ export function TransformOverlay({
   onOpenAnnotation,
   onDelete,
   onDuplicate,
-  canvasWidth,
-  canvasHeight
+  zoom = 1,
 }: TransformOverlayProps) {
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
   // Use a ref for active transform to avoid stale closure issues
   const activeTransform = useRef<TransformData | null>(null);
   const onUpdateBBoxRef = useRef(onUpdateBBox);
@@ -44,8 +44,8 @@ export function TransformOverlay({
     const tf = activeTransform.current;
     if (!tf) return;
 
-    const dx = e.clientX - tf.startX;
-    const dy = e.clientY - tf.startY;
+    const dx = (e.clientX - tf.startX) / zoomRef.current;
+    const dy = (e.clientY - tf.startY) / zoomRef.current;
     const orig = tf.originalBBox;
 
     if (tf.mode === 'drag') {
@@ -153,10 +153,8 @@ export function TransformOverlay({
   const selectedComponent = detections.find(d => d.id === selectedId);
 
   return (
-    <svg 
-      style={{ position: "absolute", inset: 0, pointerEvents: "none", zIndex: 10 }} 
-      width={canvasWidth} 
-      height={canvasHeight}
+    <svg
+      style={{ position: "absolute", left: 0, top: 0, width: 1, height: 1, overflow: "visible", pointerEvents: "none", zIndex: 10 }}
     >
       {/* Invisible hit-test rectangles for ALL detected components */}
       {detections.map(det => {

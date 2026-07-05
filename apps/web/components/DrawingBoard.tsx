@@ -30,13 +30,16 @@ import {
   upgradeWithCompositeSymbols,
 } from "@repo/pattern-detection";
 import { getComponentColor } from "./panels/DetectionPanel";
+import { useBoardViewport } from "../hooks/useBoardViewport";
+import { applyCameraTransform, screenToWorld } from "../lib/viewportCoords";
+import { Minus, Plus, Maximize2 } from "lucide-react";
 
 export default function DrawingBoard({ roomId, token }: { roomId: string; token: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [tool, setTool] = useState<ToolType>("select");
   const [shapes, setShapes] = useState<Shape[]>([]);
-  const [canvasSize, setCanvasSize] = useState({ w: 900, h: 600 });
 
   /* ── Color & stroke state ── */
   const [color, setColor] = useState("#000000");
@@ -334,18 +337,22 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       .catch(() => {});
   }, [roomId, apiBase]);
 
-  // Resize canvas to fill container
-  useEffect(() => {
-    const resize = () => {
-      if (containerRef.current) {
-        const rect = containerRef.current.getBoundingClientRect();
-        setCanvasSize({ w: Math.floor(rect.width - 32), h: Math.floor(rect.height - 32) });
-      }
-    };
-    resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
-  }, []);
+  // Resize canvas to fill the viewport area
+  const {
+    viewport,
+    viewportSize,
+    sceneStyle,
+    gridStyle,
+    isSpaceDown,
+    isPanning,
+    shouldPan,
+    handleViewportPointerDown,
+    handleViewportPointerMove,
+    handleViewportPointerUp,
+    resetView,
+    zoomIn,
+    zoomOut,
+  } = useBoardViewport(viewportRef);
 
   /* ── Export canvas as PNG ── */
   const handleExport = useCallback(() => {
@@ -373,12 +380,14 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     const now = Date.now();
     if (now - cursorThrottleRef.current > 50) {
       cursorThrottleRef.current = now;
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (rect) {
-        sendCursorMove(e.clientX - rect.left, e.clientY - rect.top, color);
+      const viewportEl = viewportRef.current;
+      if (viewportEl) {
+        const rect = viewportEl.getBoundingClientRect();
+        const world = screenToWorld(e.clientX, e.clientY, rect, viewport);
+        sendCursorMove(world.x, world.y, color);
       }
     }
-  }, [sendCursorMove, color]);
+  }, [sendCursorMove, color, viewport]);
 
   /* ── Run SketchUI pipeline whenever shapes change ── */
   const runDetectionPipeline = useCallback(() => {
@@ -391,7 +400,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       return;
     }
 
-    const canvasArea = canvasSize.w * canvasSize.h;
+    const canvasArea = 1600 * 900;
 
     // Step 1a: Classify each pencil stroke independently
     const detectedFromPencil: DetectedComponent[] = pencilShapes.map((s, idx) => {
@@ -471,7 +480,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     } else {
       setLayoutTree(null);
     }
-  }, [shapes, canvasSize]);
+  }, [shapes]);
 
   // Debounce pipeline runs
   useEffect(() => {
@@ -497,8 +506,11 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     handleMouseMove,
     renderCanvas,
     liveDetection,
+    eraserPreview,
   } = useCanvasManager({
     canvasRef,
+    viewportRef,
+    viewport,
     tool,
     shapes,
     color,
@@ -519,13 +531,16 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     onEraseShapes: (shapeIds) => {
       if (shapeIds.length === 0) return;
       const idSet = new Set(shapeIds);
-      const removed = shapes.filter((s) => idSet.has(s.id));
-      setShapes((prev) => prev.filter((s) => !idSet.has(s.id)));
-      sendDrawEvent("clear_shape", {
-        shapeIds,
-        // Payloads let history replay work even if ids were regenerated on load
-        shapes: removed.map((s) => s.shapeData),
+      setShapes((prev) => {
+        const removed = prev.filter((s) => idSet.has(s.id));
+        if (removed.length === 0) return prev;
+        sendDrawEvent("clear_shape", {
+          shapeIds,
+          shapes: removed.map((s) => s.shapeData),
+        });
+        return prev.filter((s) => !idSet.has(s.id));
       });
+      setSelectedComponentId(null);
     },
   });
 
@@ -539,10 +554,12 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   useEffect(() => {
     renderCanvas();
 
-    // Draw bounding box overlays for detected components
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
     if (!ctx || !canvas) return;
+
+    applyCameraTransform(ctx, viewport);
+    const lineScale = 1 / viewport.zoom;
 
     for (const det of detections) {
       const bbox = det.boundingBox;
@@ -551,41 +568,39 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
       ctx.save();
       ctx.strokeStyle = bboxColor;
-      ctx.lineWidth = isSelected ? 2.5 : 1.5;
+      ctx.lineWidth = (isSelected ? 2.5 : 1.5) * lineScale;
       ctx.setLineDash(isSelected ? [] : [6, 4]);
       ctx.globalAlpha = isSelected ? 0.9 : 0.5;
       ctx.strokeRect(bbox.x, bbox.y, bbox.width, bbox.height);
 
-      // Label
-      ctx.font = "bold 11px Inter, sans-serif";
+      ctx.font = `bold ${11 * lineScale}px Inter, sans-serif`;
       ctx.fillStyle = bboxColor;
       ctx.globalAlpha = isSelected ? 1 : 0.7;
-      const label = det.type.replace(/_/g, ' ');
+      const label = det.type.replace(/_/g, " ");
       const textW = ctx.measureText(label).width;
       ctx.fillStyle = bboxColor;
       ctx.globalAlpha = 0.85;
-      // Background for label
-      ctx.fillRect(bbox.x - 1, bbox.y - 16, textW + 8, 16);
+      ctx.fillRect(bbox.x - 1, bbox.y - 16 * lineScale, textW + 8, 16 * lineScale);
       ctx.fillStyle = "#fff";
-      ctx.fillText(label, bbox.x + 3, bbox.y - 4);
+      ctx.fillText(label, bbox.x + 3, bbox.y - 4 * lineScale);
       ctx.restore();
     }
-  }, [renderCanvas, shapes, detections, selectedComponentId]);
+  }, [renderCanvas, shapes, detections, selectedComponentId, viewport]);
 
   /* ── Palette drop handler ── */
   const handlePaletteDrop = useCallback((event: PaletteDropEvent) => {
     const { item, x, y } = event;
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+    const viewportEl = viewportRef.current;
+    if (!viewportEl) return;
 
-    const canvasX = x - rect.left;
-    const canvasY = y - rect.top;
+    const rect = viewportEl.getBoundingClientRect();
+    const world = screenToWorld(x, y, rect, viewport);
 
     const shapeId = createShapeId();
     const wireframeData: Record<string, unknown> = {
       wireframeType: item.id,
-      x: canvasX - item.defaultSize.w / 2,
-      y: canvasY - item.defaultSize.h / 2,
+      x: world.x - item.defaultSize.w / 2,
+      y: world.y - item.defaultSize.h / 2,
       w: item.defaultSize.w,
       h: item.defaultSize.h,
       stroke: "#64748b",
@@ -597,7 +612,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       { id: shapeId, shapeType: "wireframe" as ShapeType, shapeData: wireframeData },
     ]);
     sendDrawEvent("wireframe" as ShapeType, { ...wireframeData, __id: shapeId });
-  }, [sendDrawEvent]);
+  }, [sendDrawEvent, viewport]);
 
   /* ── Canvas drag-over / drop handlers ── */
   const handleCanvasDragOver = useCallback((e: React.DragEvent) => {
@@ -623,10 +638,10 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   /* ── Double-click to annotate ── */
   const handleCanvasDoubleClick = useCallback((e: React.MouseEvent) => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const cx = e.clientX - rect.left;
-    const cy = e.clientY - rect.top;
+    const viewportEl = viewportRef.current;
+    if (!viewportEl) return;
+    const rect = viewportEl.getBoundingClientRect();
+    const { x: cx, y: cy } = screenToWorld(e.clientX, e.clientY, rect, viewport);
 
     // Find which detected component was double-clicked
     for (const det of detections) {
@@ -640,7 +655,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         return;
       }
     }
-  }, [detections]);
+  }, [detections, viewport]);
 
   const handleSaveAnnotation = useCallback((annotation: ComponentAnnotation) => {
     setAnnotations(prev => {
@@ -810,19 +825,47 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         />
 
         <div className="draw-board" ref={containerRef}>
-          <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div
+            ref={viewportRef}
+            className={`draw-board-viewport${isSpaceDown ? " space-pressed" : ""}${isPanning ? " is-panning" : ""}`}
+            style={gridStyle}
+            onPointerDownCapture={handleViewportPointerDown}
+            onPointerMove={handleViewportPointerMove}
+            onPointerUp={handleViewportPointerUp}
+            onPointerCancel={handleViewportPointerUp}
+            onMouseDown={(e) => {
+              if (e.button === 1) e.preventDefault();
+            }}
+            onContextMenu={(e) => {
+              if (isSpaceDown) e.preventDefault();
+            }}
+          >
             <canvas
               ref={canvasRef}
-              width={canvasSize.w}
-              height={canvasSize.h}
+              width={viewportSize.w}
+              height={viewportSize.h}
               className="draw-canvas"
+              style={{
+                cursor: isSpaceDown || isPanning
+                  ? isPanning ? "grabbing" : "grab"
+                  : tool === "eraser"
+                    ? "crosshair"
+                    : tool === "select"
+                      ? "default"
+                      : "crosshair",
+              }}
               onMouseDown={(e) => {
-                // Deselect any selected component when the user clicks on the canvas to draw
+                if (shouldPan(e)) return;
                 if (selectedComponentId) setSelectedComponentId(null);
                 handleMouseDown(e);
               }}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
+              onMouseUp={(e) => {
+                if (shouldPan(e)) return;
+                handleMouseUp(e);
+              }}
+              onMouseLeave={(e) => {
+                if (tool !== "eraser") handleMouseUp(e);
+              }}
               onMouseMove={combinedMouseMove}
               onDoubleClick={handleCanvasDoubleClick}
               onDragOver={handleCanvasDragOver}
@@ -830,32 +873,58 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               onDrop={handleCanvasDrop}
             />
 
-            {/* Transform & Selection Overlay */}
-            {detections.length > 0 && (
-              <TransformOverlay
-                detections={detections as any}
-                selectedId={selectedComponentId}
-                onSelect={setSelectedComponentId}
-                onUpdateBBox={handleUpdateBBox}
-                onOpenAnnotation={(id) => {
-                  const det = detections.find(d => d.id === id);
-                  if (det) {
-                    setEditingAnnotation({
-                      componentId: id,
-                      componentType: det.type,
-                      position: { x: det.boundingBox.x + det.boundingBox.width, y: det.boundingBox.y },
-                    });
-                  }
-                }}
-                onDelete={handleDeleteComponent}
-                onDuplicate={handleDuplicateComponent}
-                canvasWidth={canvasSize.w}
-                canvasHeight={canvasSize.h}
-              />
-            )}
+            <div className="draw-board-scene" style={sceneStyle}>
+              {eraserPreview && (
+                <div
+                  className="eraser-preview"
+                  style={{
+                    left: eraserPreview.x,
+                    top: eraserPreview.y,
+                    width: eraserPreview.w,
+                    height: eraserPreview.h,
+                  }}
+                />
+              )}
 
-            {/* Live cursors overlay */}
-            <LiveCursors cursors={cursorsRef.current} key={cursorsVersion} />
+              {detections.length > 0 && tool === "select" && (
+                <TransformOverlay
+                  detections={detections as any}
+                  selectedId={selectedComponentId}
+                  onSelect={setSelectedComponentId}
+                  onUpdateBBox={handleUpdateBBox}
+                  onOpenAnnotation={(id) => {
+                    const det = detections.find(d => d.id === id);
+                    if (det) {
+                      setEditingAnnotation({
+                        componentId: id,
+                        componentType: det.type,
+                        position: { x: det.boundingBox.x + det.boundingBox.width, y: det.boundingBox.y },
+                      });
+                    }
+                  }}
+                  onDelete={handleDeleteComponent}
+                  onDuplicate={handleDuplicateComponent}
+                  zoom={viewport.zoom}
+                />
+              )}
+
+              <LiveCursors cursors={cursorsRef.current} key={cursorsVersion} />
+            </div>
+
+            <div className="viewport-controls">
+              <button type="button" title="Zoom out (Ctrl+-)" onClick={zoomOut} aria-label="Zoom out">
+                <Minus size={14} />
+              </button>
+              <button type="button" title="Reset zoom (Ctrl+0)" onClick={resetView} className="viewport-zoom-label">
+                {Math.round(viewport.zoom * 100)}%
+              </button>
+              <button type="button" title="Zoom in (Ctrl++)" onClick={zoomIn} aria-label="Zoom in">
+                <Plus size={14} />
+              </button>
+              <button type="button" title="Reset view" onClick={resetView} aria-label="Reset view">
+                <Maximize2 size={14} />
+              </button>
+            </div>
           </div>
 
           {/* Live detection indicator */}
@@ -944,8 +1013,8 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           selectedComponentId={selectedComponentId}
           onSelectComponent={handleSelectComponent}
           onUpdateNodeType={handleUpdateNodeType}
-          canvasWidth={canvasSize.w}
-          canvasHeight={canvasSize.h}
+          canvasWidth={viewportSize.w}
+          canvasHeight={viewportSize.h}
           autoGenerate={autoGenerate}
           onGenerationComplete={() => setAutoGenerate(false)}
           annotations={annotations}
@@ -964,7 +1033,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           Room #{roomId}
         </div>
         <div className="draw-status-item">
-          Ctrl+Z Undo · Ctrl+Y Redo
+          Ctrl+Z Undo · Ctrl+Y Redo · Scroll to pan · Ctrl+Scroll to zoom · Space+drag to pan
         </div>
         <div className="draw-status-item">
           DTW + Geometric Heuristics

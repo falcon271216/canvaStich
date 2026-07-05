@@ -1,9 +1,28 @@
 "use client";
 
-import { Pencil, Minus, Square, Eraser, Undo2, Redo2, Download, GripVertical, MousePointer } from "lucide-react";
+import {
+  Pencil,
+  Minus,
+  Square,
+  Circle,
+  ArrowUpRight,
+  Eraser,
+  Undo2,
+  Redo2,
+  Download,
+  GripVertical,
+  MousePointer,
+} from "lucide-react";
 import { type ReactNode, useState, useRef, useEffect } from "react";
 
-export type ToolType = "select" | "pencil" | "line" | "rectangle" | "eraser";
+export type ToolType =
+  | "select"
+  | "pencil"
+  | "line"
+  | "arrow"
+  | "rectangle"
+  | "circle"
+  | "eraser";
 
 interface Props {
   currentTool: ToolType;
@@ -32,9 +51,11 @@ const STROKE_WIDTHS = [
 
 const tools: { type: ToolType; icon: ReactNode; title: string }[] = [
   { type: "select", icon: <MousePointer size={18} />, title: "Select / Move tool" },
-  { type: "pencil", icon: <Pencil size={18} />, title: "Pencil – DTW pattern detection" },
+  { type: "pencil", icon: <Pencil size={18} />, title: "Pencil – freehand draw" },
   { type: "line", icon: <Minus size={18} />, title: "Line" },
+  { type: "arrow", icon: <ArrowUpRight size={18} />, title: "Arrow" },
   { type: "rectangle", icon: <Square size={18} />, title: "Rectangle" },
+  { type: "circle", icon: <Circle size={18} />, title: "Circle / Ellipse" },
   { type: "eraser", icon: <Eraser size={18} />, title: "Eraser" },
 ];
 
@@ -177,7 +198,7 @@ export default function DrawingToolSelector({
         {tools.map((tool, i) => (
           <div key={tool.type} style={{ display: "contents" }}>
             {i === 1 && <div className="tool-separator" />}
-            {i === 4 && <div className="tool-separator" />}
+            {i === 6 && <div className="tool-separator" />}
             <button
               type="button"
               title={tool.title}

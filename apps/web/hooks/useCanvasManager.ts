@@ -1,14 +1,12 @@
 "use client";
 
-import { RefObject, useCallback, useRef, useState } from "react";
+import { RefObject, useCallback, useEffect, useRef, useState } from "react";
 import { detectShape, SlidingWindowDetector } from "@repo/pattern-detection";
 import type { Point, LiveDetection } from "@repo/pattern-detection";
 import type { ToolType } from "../components/DrawingToolSelector";
 import { renderWireframeSymbol } from "../components/WireframeRenderers";
-
-const PATTERN_CONFIDENCE_THRESHOLD = 0.75;
-/** Minimum erase hit area so a click still removes the shape under the cursor */
-const MIN_ERASE_SIZE = 12;
+import type { ViewportState } from "./useBoardViewport";
+import { applyCameraTransform, resetCameraTransform, screenToWorld } from "../lib/viewportCoords";
 
 export type ShapeType = ToolType | "completion" | "analysis" | "emoji" | "clear_shape" | "wireframe";
 
@@ -25,55 +23,133 @@ export function createShapeId(): string {
   return `shape-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+const PATTERN_CONFIDENCE_THRESHOLD = 0.75;
+/** Minimum erase hit area so a click still removes the shape under the cursor */
+const MIN_ERASE_SIZE = 16;
+/** Extra padding around erase box for easier hits */
+const ERASE_PADDING = 6;
+
+type EraseRect = { minX: number; minY: number; maxX: number; maxY: number };
+
+function expandEraseRect(rect: EraseRect, padding = ERASE_PADDING): EraseRect {
+  return {
+    minX: rect.minX - padding,
+    minY: rect.minY - padding,
+    maxX: rect.maxX + padding,
+    maxY: rect.maxY + padding,
+  };
+}
+
+function pointInRect(x: number, y: number, r: EraseRect): boolean {
+  return x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
+}
+
 function rectsOverlap(
-  a: { minX: number; minY: number; maxX: number; maxY: number },
-  b: { minX: number; minY: number; maxX: number; maxY: number },
+  a: EraseRect,
+  b: EraseRect,
 ): boolean {
   return !(a.maxX < b.minX || a.minX > b.maxX || a.maxY < b.minY || a.minY > b.maxY);
 }
 
+/** Liang–Barsky style segment vs axis-aligned rect */
+function segmentIntersectsRect(
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  rect: EraseRect,
+): boolean {
+  if (pointInRect(x1, y1, rect) || pointInRect(x2, y2, rect)) return true;
+
+  const edges: [number, number, number, number][] = [
+    [rect.minX, rect.minY, rect.maxX, rect.minY],
+    [rect.maxX, rect.minY, rect.maxX, rect.maxY],
+    [rect.maxX, rect.maxY, rect.minX, rect.maxY],
+    [rect.minX, rect.maxY, rect.minX, rect.minY],
+  ];
+
+  for (const [ex1, ey1, ex2, ey2] of edges) {
+    if (segmentsCross(x1, y1, x2, y2, ex1, ey1, ex2, ey2)) return true;
+  }
+  return false;
+}
+
+function segmentsCross(
+  x1: number, y1: number, x2: number, y2: number,
+  x3: number, y3: number, x4: number, y4: number,
+): boolean {
+  const d = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+  if (Math.abs(d) < 1e-10) return false;
+  const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / d;
+  const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / d;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1;
+}
+
+function circleIntersectsRect(cx: number, cy: number, rx: number, ry: number, rect: EraseRect): boolean {
+  const closestX = Math.max(rect.minX, Math.min(cx, rect.maxX));
+  const closestY = Math.max(rect.minY, Math.min(cy, rect.maxY));
+  const dx = (closestX - cx) / (rx || 1);
+  const dy = (closestY - cy) / (ry || 1);
+  return dx * dx + dy * dy <= 1;
+}
+
+function drawArrowHead(
+  ctx: CanvasRenderingContext2D,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  lineWidth: number,
+) {
+  const len = Math.hypot(x2 - x1, y2 - y1);
+  if (len < 4) return;
+  const headLen = Math.min(18, Math.max(8, len * 0.25));
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  ctx.beginPath();
+  ctx.moveTo(x2, y2);
+  ctx.lineTo(
+    x2 - headLen * Math.cos(angle - Math.PI / 7),
+    y2 - headLen * Math.sin(angle - Math.PI / 7),
+  );
+  ctx.lineTo(
+    x2 - headLen * Math.cos(angle + Math.PI / 7),
+    y2 - headLen * Math.sin(angle + Math.PI / 7),
+  );
+  ctx.closePath();
+  ctx.fillStyle = ctx.strokeStyle;
+  ctx.fill();
+}
+
 function shapeIntersectsEraseRegion(
   shape: Shape,
-  erase: { minX: number; minY: number; maxX: number; maxY: number },
+  rawErase: EraseRect,
 ): boolean {
+  const erase = expandEraseRect(rawErase);
+
   if (shape.shapeType === "pencil") {
     const path = shape.shapeData.path as { x: number; y: number }[] | undefined;
+    const lw = (shape.shapeData.lineWidth as number) || 2;
+    const pad = Math.max(ERASE_PADDING, lw);
+    const padded = expandEraseRect(rawErase, pad);
     if (!path?.length) return false;
-    // Point-in-rect, or segment crosses erase region
     for (let i = 0; i < path.length; i++) {
       const p = path[i]!;
-      if (p.x >= erase.minX && p.x <= erase.maxX && p.y >= erase.minY && p.y <= erase.maxY) {
-        return true;
-      }
+      if (pointInRect(p.x, p.y, padded)) return true;
       if (i > 0) {
         const prev = path[i - 1]!;
-        const segMinX = Math.min(prev.x, p.x);
-        const segMaxX = Math.max(prev.x, p.x);
-        const segMinY = Math.min(prev.y, p.y);
-        const segMaxY = Math.max(prev.y, p.y);
-        if (rectsOverlap(erase, { minX: segMinX, minY: segMinY, maxX: segMaxX, maxY: segMaxY })) {
-          return true;
-        }
+        if (segmentIntersectsRect(prev.x, prev.y, p.x, p.y, padded)) return true;
       }
     }
     return false;
   }
 
-  if (shape.shapeType === "line") {
+  if (shape.shapeType === "line" || shape.shapeType === "arrow") {
     const { x1, y1, x2, y2 } = shape.shapeData as {
       x1: number; y1: number; x2: number; y2: number;
     };
-    // Endpoint hit
-    for (const [x, y] of [[x1, y1], [x2, y2]] as const) {
-      if (x >= erase.minX && x <= erase.maxX && y >= erase.minY && y <= erase.maxY) return true;
-    }
-    // Bounding-box overlap for the segment
-    return rectsOverlap(erase, {
-      minX: Math.min(x1, x2),
-      minY: Math.min(y1, y2),
-      maxX: Math.max(x1, x2),
-      maxY: Math.max(y1, y2),
-    });
+    const lw = (shape.shapeData.lineWidth as number) || 2;
+    const padded = expandEraseRect(rawErase, Math.max(ERASE_PADDING, lw * 2));
+    return segmentIntersectsRect(x1, y1, x2, y2, padded);
   }
 
   if (shape.shapeType === "rectangle") {
@@ -86,6 +162,13 @@ function shapeIntersectsEraseRegion(
       maxX: Math.max(x1, x2),
       maxY: Math.max(y1, y2),
     });
+  }
+
+  if (shape.shapeType === "circle") {
+    const { cx, cy, rx, ry } = shape.shapeData as {
+      cx: number; cy: number; rx: number; ry: number;
+    };
+    return circleIntersectsRect(cx, cy, rx, ry, erase);
   }
 
   if (shape.shapeType === "wireframe" || shape.shapeType === "emoji") {
@@ -138,6 +221,8 @@ function shapeIntersectsEraseRegion(
 
 export function useCanvasManager({
   canvasRef,
+  viewportRef,
+  viewport,
   tool,
   shapes,
   color,
@@ -146,6 +231,8 @@ export function useCanvasManager({
   onEraseShapes,
 }: {
   canvasRef: RefObject<HTMLCanvasElement | null>;
+  viewportRef: RefObject<HTMLElement | null>;
+  viewport: ViewportState;
   tool: ToolType;
   shapes: Shape[];
   color: string;
@@ -156,22 +243,101 @@ export function useCanvasManager({
   const startRef = useRef<Point | null>(null);
   const isDrawing = useRef(false);
   const pencilPath = useRef<Point[]>([]);
+  const shapesRef = useRef(shapes);
+  shapesRef.current = shapes;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const onEraseShapesRef = useRef(onEraseShapes);
+  onEraseShapesRef.current = onEraseShapes;
+  const erasedThisStrokeRef = useRef<Set<string>>(new Set());
+  const viewportStateRef = useRef(viewport);
+  viewportStateRef.current = viewport;
+  const colorRef = useRef(color);
+  colorRef.current = color;
+  const strokeWidthRef = useRef(strokeWidth);
+  strokeWidthRef.current = strokeWidth;
   const slidingDetector = useRef(new SlidingWindowDetector({ windowSize: 32, step: 6 }));
   const [liveDetection, setLiveDetection] = useState<LiveDetection | null>(null);
+  const [eraserPreview, setEraserPreview] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
+
+  const performErase = useCallback((start: Point, end: Point) => {
+    let minX = Math.min(start.x, end.x);
+    let minY = Math.min(start.y, end.y);
+    let maxX = Math.max(start.x, end.x);
+    let maxY = Math.max(start.y, end.y);
+
+    if (maxX - minX < MIN_ERASE_SIZE) {
+      const cx = (minX + maxX) / 2;
+      minX = cx - MIN_ERASE_SIZE / 2;
+      maxX = cx + MIN_ERASE_SIZE / 2;
+    }
+    if (maxY - minY < MIN_ERASE_SIZE) {
+      const cy = (minY + maxY) / 2;
+      minY = cy - MIN_ERASE_SIZE / 2;
+      maxY = cy + MIN_ERASE_SIZE / 2;
+    }
+
+    const erase = { minX, minY, maxX, maxY };
+    const idsToRemove = shapesRef.current
+      .filter((shape) => shapeIntersectsEraseRegion(shape, erase))
+      .map((shape) => shape.id)
+      .filter((id) => !erasedThisStrokeRef.current.has(id));
+
+    if (idsToRemove.length > 0) {
+      idsToRemove.forEach((id) => erasedThisStrokeRef.current.add(id));
+      const idSet = new Set(idsToRemove);
+      shapesRef.current = shapesRef.current.filter((s) => !idSet.has(s.id));
+      onEraseShapesRef.current(idsToRemove);
+    }
+  }, []);
+
+  const renderCanvasRef = useRef<() => void>(() => {});
+
+  const finishEraserStroke = useCallback((start: Point, end: Point) => {
+    performErase(start, end);
+    setEraserPreview(null);
+    renderCanvasRef.current();
+  }, [performErase]);
   const getPos = (e: React.MouseEvent): Point => {
-    const rect = canvasRef.current?.getBoundingClientRect();
-    const canvas = canvasRef.current;
-    if (!rect || !canvas) {
+    const viewportEl = viewportRef.current;
+    if (!viewportEl) {
       return { x: 0, y: 0, t: performance.now() };
     }
-    // Map CSS pixels to canvas buffer coordinates (handles DPI / CSS scaling)
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
-      t: performance.now(),
-    };
+    const rect = viewportEl.getBoundingClientRect();
+    const world = screenToWorld(e.clientX, e.clientY, rect, viewportStateRef.current);
+    return { x: world.x, y: world.y, t: performance.now() };
+  };
+
+  const getPosFromClient = (clientX: number, clientY: number): Point => {
+    const viewportEl = viewportRef.current;
+    if (!viewportEl) {
+      return { x: 0, y: 0, t: performance.now() };
+    }
+    const rect = viewportEl.getBoundingClientRect();
+    const world = screenToWorld(clientX, clientY, rect, viewportStateRef.current);
+    return { x: world.x, y: world.y, t: performance.now() };
+  };
+
+  const drawInProgressPencil = (ctx: CanvasRenderingContext2D) => {
+    const path = pencilPath.current;
+    if (path.length < 2) return;
+    ctx.strokeStyle = colorRef.current;
+    ctx.lineWidth = strokeWidthRef.current;
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    const first = path[0]!;
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < path.length; i++) {
+      const p = path[i];
+      if (p) ctx.lineTo(p.x, p.y);
+    }
+    ctx.stroke();
   };
 
   const drawShape = (ctx: CanvasRenderingContext2D, shape: Shape) => {
@@ -243,9 +409,21 @@ export function useCanvasManager({
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
       ctx.stroke();
+    } else if (shape.shapeType === "arrow") {
+      const { x1, y1, x2, y2 } = shape.shapeData as { x1: number; y1: number; x2: number; y2: number };
+      ctx.lineCap = "round";
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      drawArrowHead(ctx, x1, y1, x2, y2, lw);
     } else if (shape.shapeType === "rectangle") {
       const { x1, y1, x2, y2 } = shape.shapeData as { x1: number; y1: number; x2: number; y2: number };
       ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    } else if (shape.shapeType === "circle") {
+      const { cx, cy, rx, ry } = shape.shapeData as { cx: number; cy: number; rx: number; ry: number };
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.stroke();
     } else if (shape.shapeType === "pencil") {
       const { path } = shape.shapeData as { path: { x: number; y: number }[] };
       if (!path || path.length < 2) return;
@@ -285,31 +463,47 @@ export function useCanvasManager({
     const ctx = canvas?.getContext("2d");
     if (!canvas || !ctx) return;
 
+    resetCameraTransform(ctx);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    shapes.forEach((shape) => drawShape(ctx, shape));
+    applyCameraTransform(ctx, viewportStateRef.current);
+
+    shapesRef.current.forEach((shape) => drawShape(ctx, shape));
+
+    if (isDrawing.current && toolRef.current === "pencil") {
+      drawInProgressPencil(ctx);
+    }
 
     if (liveDetection && liveDetection.smoothedConfidence >= 0.45) {
       ctx.save();
       ctx.globalAlpha = 0.3;
       ctx.strokeStyle = "#6366f1";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2 / viewportStateRef.current.zoom;
       ctx.setLineDash([6, 4]);
-      ctx.font = "12px sans-serif";
+      ctx.font = `${12 / viewportStateRef.current.zoom}px sans-serif`;
       ctx.fillStyle = "#6366f1";
+      const last = pencilPath.current[pencilPath.current.length - 1];
+      const lx = last?.x ?? 0;
+      const ly = last?.y ?? 24;
       ctx.fillText(
         `${liveDetection.label} (${(liveDetection.smoothedConfidence * 100).toFixed(0)}%)`,
-        10,
-        canvas.height - 10,
+        lx,
+        ly - 12,
       );
       ctx.restore();
     }
-  }, [shapes, liveDetection, canvasRef]);
+  }, [liveDetection, canvasRef]);
+
+  renderCanvasRef.current = renderCanvas;
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (tool === "select") return;
     const pos = getPos(e);
     startRef.current = pos;
     isDrawing.current = true;
+
+    if (tool === "eraser") {
+      erasedThisStrokeRef.current.clear();
+    }
 
     if (tool === "pencil") {
       pencilPath.current = [pos];
@@ -333,39 +527,45 @@ export function useCanvasManager({
         setLiveDetection(live);
       }
 
-      const ctx = canvasRef.current?.getContext("2d");
-      if (!ctx) return;
-
-      const path = pencilPath.current;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = strokeWidth;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      if (path.length >= 2) {
-        const prev = path[path.length - 2]!;
-        ctx.moveTo(prev.x, prev.y);
-        ctx.lineTo(pos.x, pos.y);
-        ctx.stroke();
+      renderCanvas();
+    } else if (
+      tool === "eraser" ||
+      tool === "rectangle" ||
+      tool === "line" ||
+      tool === "arrow" ||
+      tool === "circle"
+    ) {
+      if (tool === "eraser") {
+        if (!start) return;
+        renderCanvas();
+        const x = Math.min(start.x, pos.x);
+        const y = Math.min(start.y, pos.y);
+        const w = Math.abs(pos.x - start.x);
+        const h = Math.abs(pos.y - start.y);
+        setEraserPreview({ x, y, w, h });
+        performErase(start, pos);
+        return;
       }
-    } else if (tool === "eraser" || tool === "rectangle" || tool === "line") {
+
       renderCanvas();
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx || !start) return;
+      applyCameraTransform(ctx, viewportStateRef.current);
 
-      if (tool === "eraser") {
-        ctx.save();
-        ctx.fillStyle = "rgba(239, 68, 68, 0.15)";
-        ctx.strokeStyle = "#ef4444";
-        ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 5]);
-        ctx.fillRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
-        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
-        ctx.restore();
-      } else if (tool === "rectangle") {
+      if (tool === "rectangle") {
         ctx.strokeStyle = color;
         ctx.lineWidth = strokeWidth;
         ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+      } else if (tool === "circle") {
+        const cx = (start.x + pos.x) / 2;
+        const cy = (start.y + pos.y) / 2;
+        const rx = Math.abs(pos.x - start.x) / 2;
+        const ry = Math.abs(pos.y - start.y) / 2;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeWidth;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
       } else if (tool === "line") {
         ctx.strokeStyle = color;
         ctx.lineWidth = strokeWidth;
@@ -373,9 +573,18 @@ export function useCanvasManager({
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
+      } else if (tool === "arrow") {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = strokeWidth;
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        drawArrowHead(ctx, start.x, start.y, pos.x, pos.y, strokeWidth);
       }
     }
-  }, [tool, color, strokeWidth, renderCanvas, canvasRef]);
+  }, [tool, color, strokeWidth, renderCanvas, canvasRef, performErase]);
 
   const handleMouseUp = useCallback((e: React.MouseEvent) => {
     if (!isDrawing.current) return;
@@ -388,41 +597,39 @@ export function useCanvasManager({
     const end = getPos(e);
 
     if (tool === "eraser") {
-      let minX = Math.min(start.x, end.x);
-      let minY = Math.min(start.y, end.y);
-      let maxX = Math.max(start.x, end.x);
-      let maxY = Math.max(start.y, end.y);
-
-      // Click / tiny drag: expand to a usable hit target under the cursor
-      if (maxX - minX < MIN_ERASE_SIZE) {
-        const cx = (minX + maxX) / 2;
-        minX = cx - MIN_ERASE_SIZE / 2;
-        maxX = cx + MIN_ERASE_SIZE / 2;
-      }
-      if (maxY - minY < MIN_ERASE_SIZE) {
-        const cy = (minY + maxY) / 2;
-        minY = cy - MIN_ERASE_SIZE / 2;
-        maxY = cy + MIN_ERASE_SIZE / 2;
-      }
-
-      const erase = { minX, minY, maxX, maxY };
-      const idsToRemove = shapes
-        .filter((shape) => shapeIntersectsEraseRegion(shape, erase))
-        .map((shape) => shape.id);
-
-      if (idsToRemove.length > 0) {
-        onEraseShapes(idsToRemove);
-      }
+      finishEraserStroke(start, end);
       return;
     }
 
-    if (tool === "line" || tool === "rectangle") {
+    if (tool === "line" || tool === "arrow" || tool === "rectangle") {
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      if (Math.hypot(dx, dy) < 3) return;
+
       const shapeId = createShapeId();
       const shapeData = {
         x1: start.x,
         y1: start.y,
         x2: end.x,
         y2: end.y,
+        stroke: color,
+        lineWidth: strokeWidth,
+      };
+      onSendDrawEventAction(tool, shapeData, shapeId);
+      return;
+    }
+
+    if (tool === "circle") {
+      const rx = Math.abs(end.x - start.x) / 2;
+      const ry = Math.abs(end.y - start.y) / 2;
+      if (rx < 2 && ry < 2) return;
+
+      const shapeId = createShapeId();
+      const shapeData = {
+        cx: (start.x + end.x) / 2,
+        cy: (start.y + end.y) / 2,
+        rx,
+        ry,
         stroke: color,
         lineWidth: strokeWidth,
       };
@@ -480,7 +687,33 @@ export function useCanvasManager({
       setLiveDetection(null);
       slidingDetector.current.reset();
     }
-  }, [tool, color, strokeWidth, onSendDrawEventAction, onEraseShapes, shapes]);
+  }, [tool, color, strokeWidth, onSendDrawEventAction, finishEraserStroke]);
+
+  /* Finish eraser drag even when pointer leaves the canvas */
+  useEffect(() => {
+    const onWindowMouseUp = (e: MouseEvent) => {
+      if (!isDrawing.current || toolRef.current !== "eraser") return;
+      const start = startRef.current;
+      if (!start) return;
+
+      isDrawing.current = false;
+      startRef.current = null;
+
+      const end = getPosFromClient(e.clientX, e.clientY);
+      performErase(start, end);
+      setEraserPreview(null);
+      renderCanvasRef.current();
+    };
+
+    window.addEventListener("mouseup", onWindowMouseUp);
+    return () => window.removeEventListener("mouseup", onWindowMouseUp);
+  }, [canvasRef, performErase, viewportRef]);
+
+  useEffect(() => {
+    if (tool !== "eraser") {
+      setEraserPreview(null);
+    }
+  }, [tool]);
 
   return {
     handleMouseDown,
@@ -488,5 +721,6 @@ export function useCanvasManager({
     handleMouseMove,
     renderCanvas,
     liveDetection,
+    eraserPreview,
   };
 }
