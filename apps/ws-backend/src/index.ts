@@ -9,8 +9,11 @@ import { JWT_SECRET } from "@repo/backend-common/config";
 import { prismaClient } from "@repo/db/client";
 import { getMetrics, getContentType, wsConnectionsActive, drawEventsTotal, activeRoomsGauge } from "./metrics";
 
+const repoRoot = path.resolve(__dirname, "../../..");
+
 if (!process.env.RAILWAY_ENVIRONMENT && !process.env.VERCEL) {
-  config({ path: path.resolve(__dirname, "../../../.env") });
+  config({ path: path.join(repoRoot, ".env.ws-backend") });
+  config({ path: path.join(repoRoot, ".env") });
 }
 
 interface AuthPayload extends JwtPayload {

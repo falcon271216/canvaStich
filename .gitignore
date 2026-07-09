@@ -7,10 +7,15 @@ node_modules
 
 # Local env files
 .env
+.env.http-backend
+.env.web
+.env.dashboard
+.env.ws-backend
 .env.local
 .env.development.local
 .env.test.local
 .env.production.local
+**/.env.local
 
 # Testing
 coverage

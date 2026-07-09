@@ -1,133 +1,297 @@
-# Deploy SketchUI (one repo → 4 services)
+# SketchUI — Full deployment guide
 
-Push this repo to GitHub first, then follow the steps below in order.
+**One GitHub repo → 3 Vercel projects + 1 Railway service**
+
+Replace placeholders like `YOUR-API`, `YOUR-WEB`, etc. with your real URLs.
 
 ---
 
-## 0. Database (do this once)
+## Overview
 
-Use **Neon**, **Supabase**, or **Vercel Postgres** for PostgreSQL.
+| # | Service | Platform | Root path in repo | Production URL (example) |
+|---|---------|----------|-------------------|--------------------------|
+| 1 | REST API + AI | **Vercel** | `apps/http-backend` | `https://sketchui-api.vercel.app` |
+| 2 | Drawing app | **Vercel** | `apps/web` | `https://sketchui-web.vercel.app` |
+| 3 | Analytics dashboard | **Vercel** | `apps/dashboard` | `https://sketchui-dashboard.vercel.app` |
+| 4 | WebSocket (live sync) | **Railway** | `apps/ws-backend` | `https://sketchui-ws.up.railway.app` |
 
-1. Create a database and copy the connection string.
-2. Locally, set `DATABASE_URL` in `.env` at the repo root.
-3. Run migrations:
+**Deploy in this order:** API → Web → Dashboard → Railway → then update env URLs and redeploy.
+
+---
+
+## Step 0 — Prerequisites (once)
+
+### 0.1 Push code to GitHub
+
+```bash
+git add .
+git commit -m "Prepare for deployment"
+git push origin main
+```
+
+### 0.2 Create PostgreSQL database
+
+Use **[Neon](https://neon.tech)** (recommended), Supabase, or Vercel Postgres.
+
+- Copy the **pooled** connection string (Neon: use the “Pooled” URL).
+- Format: `postgresql://user:pass@host/dbname?sslmode=require`
+
+### 0.3 Run database migrations (on your machine)
+
+Create `.env` at the **repo root**:
+
+```env
+DATABASE_URL="postgresql://..."
+```
+
+Then:
 
 ```bash
 pnpm install
 pnpm --filter @repo/db exec prisma migrate deploy
 ```
 
-Use the **pooled** connection string for Vercel/Railway (Neon “pooler” URL recommended).
+### 0.4 Generate secrets
+
+```bash
+# Example — use any long random string for JWT_SECRET
+openssl rand -base64 32
+```
+
+Save:
+- `JWT_SECRET` — use the **same value** on API (Vercel) and WebSocket (Railway).
+- `GEMINI_API_KEY` — from [Google AI Studio](https://aistudio.google.com/apikey) (for premium code generation).
 
 ---
 
-## 1. API — Vercel (`apps/http-backend`)
+## Step 1 — API (Vercel)
 
-1. Go to [vercel.com/new](https://vercel.com/new) → Import your GitHub repo.
-2. **Project name:** e.g. `sketchui-api`
-3. **Root Directory:** `apps/http-backend`
-4. Framework should auto-detect **Express** (or Other).
-5. **Environment variables** (Production + Preview):
+### Vercel project settings
 
-| Variable | Value |
-|----------|--------|
-| `DATABASE_URL` | Your PostgreSQL URL (pooled) |
-| `JWT_SECRET` | Long random string (same for all services) |
-| `GEMINI_API_KEY` | Google Gemini API key |
-| `WEB_APP_URL` | `https://YOUR-WEB.vercel.app` (set after step 2) |
-| `DASHBOARD_URL` | `https://YOUR-DASHBOARD.vercel.app` (optional) |
+| Setting | Value |
+|---------|--------|
+| **Import** | Your GitHub repo |
+| **Project name** | `sketchui-api` (any name) |
+| **Framework Preset** | Express (or Other) |
+| **Root Directory** | `apps/http-backend` |
+| **Node.js version** | 20.x (Project Settings → General) |
 
-6. Deploy → copy the URL, e.g. `https://sketchui-api.vercel.app`
-7. Test: open `https://sketchui-api.vercel.app/health` → should return `{"ok":true}`
+Build/install are defined in `apps/http-backend/vercel.json` (do not change unless needed):
 
----
+| Setting | Command |
+|---------|---------|
+| Install Command | `cd ../.. && pnpm install` |
+| Build Command | `cd ../.. && pnpm turbo build --filter=http-backend...` |
+| Output Directory | *(leave default — Express serverless)* |
 
-## 2. Web app — Vercel (`apps/web`)
+### Environment variables (Vercel → Settings → Environment Variables)
 
-1. **New Project** → same repo.
-2. **Root Directory:** `apps/web`
-3. Framework: **Next.js** (auto).
-4. **Environment variables:**
+Add for **Production** and **Preview**:
 
-| Variable | Value |
-|----------|--------|
-| `NEXT_PUBLIC_HTTP_API` | `https://sketchui-api.vercel.app` |
-| `NEXT_PUBLIC_WS_URL` | `wss://YOUR-WS.up.railway.app` (set after step 4) |
-| `NEXT_PUBLIC_DASHBOARD_URL` | `https://YOUR-DASHBOARD.vercel.app` (optional) |
+| Variable | Required | Example / notes |
+|----------|----------|-----------------|
+| `DATABASE_URL` | ✅ Yes | `postgresql://user:pass@ep-xxx.neon.tech/neondb?sslmode=require` (pooled URL) |
+| `JWT_SECRET` | ✅ Yes | `k8J2mN9pQ4rT7vX1zA5bC6dE8fG0hI3j` (min ~32 chars, random) |
+| `GEMINI_API_KEY` | ✅ Yes | `AIza...` from Google AI Studio |
+| `WEB_APP_URL` | ✅ Yes* | `https://sketchui-web.vercel.app` — set **after** Step 2, then redeploy API |
+| `DASHBOARD_URL` | Optional | `https://sketchui-dashboard.vercel.app` — for CORS on dashboard |
 
-5. Deploy → main URL e.g. `https://sketchui-web.vercel.app`
-6. Go back to **API project** → set `WEB_APP_URL` to this URL → Redeploy API (for CORS).
+\*Deploy API first without `WEB_APP_URL`, then add it after the web app URL is known.
 
----
+`VERCEL_URL` is set automatically by Vercel (used for CORS fallback).
 
-## 3. Dashboard — Vercel (`apps/dashboard`) *(optional)*
+### Verify
 
-1. **New Project** → same repo.
-2. **Root Directory:** `apps/dashboard`
-3. **Environment variables:**
-
-| Variable | Value |
-|----------|--------|
-| `NEXT_PUBLIC_HTTP_API` | `https://sketchui-api.vercel.app` |
-
-4. Deploy.
+Open: `https://YOUR-API.vercel.app/health`  
+Expected: `{"ok":true,"service":"http-backend"}`
 
 ---
 
-## 4. WebSocket — Railway (`apps/ws-backend`)
+## Step 2 — Web app (Vercel)
 
-1. Go to [railway.app](https://railway.app) → **New Project** → **Deploy from GitHub repo**.
-2. Select the same repository.
-3. **Settings → Root Directory:** `apps/ws-backend`
-4. **Settings → Networking → Generate Domain** (e.g. `sketchui-ws.up.railway.app`)
-5. **Variables:**
+### Vercel project settings
 
-| Variable | Value |
-|----------|--------|
-| `DATABASE_URL` | Same as API |
-| `JWT_SECRET` | Same as API |
+| Setting | Value |
+|---------|--------|
+| **Import** | Same GitHub repo (new project) |
+| **Project name** | `sketchui-web` |
+| **Framework Preset** | Next.js |
+| **Root Directory** | `apps/web` |
 
-6. Deploy. Railway uses `railway.toml` for build/start.
-7. Test: `https://sketchui-ws.up.railway.app/health`
-8. Update **web** Vercel project:
+From `apps/web/vercel.json`:
+
+| Setting | Command |
+|---------|---------|
+| Install Command | `cd ../.. && pnpm install` |
+| Build Command | `cd ../.. && pnpm turbo build --filter=web...` |
+| Output Directory | `.next` (default) |
+
+### Environment variables
+
+Add for **Production** and **Preview**:
+
+| Variable | Required | Example / notes |
+|----------|----------|-----------------|
+| `NEXT_PUBLIC_HTTP_API` | ✅ Yes | `https://sketchui-api.vercel.app` (no trailing slash) |
+| `NEXT_PUBLIC_WS_URL` | ✅ Yes* | `wss://sketchui-ws.up.railway.app` — set **after** Step 4 |
+| `NEXT_PUBLIC_DASHBOARD_URL` | Optional | `https://sketchui-dashboard.vercel.app` (link in nav) |
+
+\*Use `wss://` in production (not `ws://`). Set after Railway is live, then **Redeploy** this project.
+
+### After deploy
+
+1. Copy production URL → e.g. `https://sketchui-web.vercel.app`
+2. Go to **API project** (Step 1) → set `WEB_APP_URL` to that URL → **Redeploy API**
+
+### Verify
+
+- Open web URL → landing page loads
+- Sign up / sign in works (hits API)
+
+---
+
+## Step 3 — Dashboard (Vercel)
+
+### Vercel project settings
+
+| Setting | Value |
+|---------|--------|
+| **Import** | Same GitHub repo (new project) |
+| **Project name** | `sketchui-dashboard` |
+| **Framework Preset** | Next.js |
+| **Root Directory** | `apps/dashboard` |
+
+From `apps/dashboard/vercel.json`:
+
+| Setting | Command |
+|---------|---------|
+| Install Command | `cd ../.. && pnpm install` |
+| Build Command | `cd ../.. && pnpm turbo build --filter=dashboard...` |
+
+### Environment variables
+
+| Variable | Required | Example / notes |
+|----------|----------|-----------------|
+| `NEXT_PUBLIC_HTTP_API` | ✅ Yes | `https://sketchui-api.vercel.app` |
+| `NEXT_PUBLIC_WS_METRICS` | Optional | `https://sketchui-ws.up.railway.app/metrics` (Prometheus-style metrics from WS service) |
+| `NEXT_PUBLIC_PROMETHEUS_URL` | Optional | Only if you run separate Prometheus |
+
+### After deploy
+
+On **API project**, set `DASHBOARD_URL` to dashboard URL → Redeploy API (CORS).
+
+---
+
+## Step 4 — WebSocket (Railway)
+
+### Railway project settings
+
+1. [railway.app](https://railway.app) → **New Project** → **GitHub Repo** → select same repo.
+2. **Settings → Root Directory:** `apps/ws-backend`
+3. **Settings → Networking → Public Networking → Generate Domain**  
+   Example: `sketchui-ws.up.railway.app`
+
+Build/start are in `apps/ws-backend/railway.toml`:
+
+| Setting | Value |
+|---------|--------|
+| Build Command | `cd ../.. && pnpm install && pnpm turbo build --filter=ws-backend...` |
+| Start Command | `node dist/index.js` |
+| Health check | `/health` |
+
+### Environment variables (Railway → Variables)
+
+| Variable | Required | Example / notes |
+|----------|----------|-----------------|
+| `DATABASE_URL` | ✅ Yes | **Same** pooled URL as Vercel API |
+| `JWT_SECRET` | ✅ Yes | **Same** value as Vercel API |
+| `PORT` | ❌ Do not set | Railway injects this automatically |
+
+### Verify
+
+- `https://sketchui-ws.up.railway.app/health` → `{"ok":true,"service":"ws-backend"}`
+- `https://sketchui-ws.up.railway.app/metrics` → Prometheus metrics (optional)
+
+### Wire WebSocket to web app
+
+On **Vercel web project** (Step 2):
 
 ```
 NEXT_PUBLIC_WS_URL=wss://sketchui-ws.up.railway.app
 ```
 
-Redeploy the web app.
+**Redeploy** the web project (required for `NEXT_PUBLIC_*` changes).
 
 ---
 
-## 5. Final checklist
+## Step 5 — Final env wiring (checklist)
 
-- [ ] `https://YOUR-API.vercel.app/health` → OK
-- [ ] `https://YOUR-WS.up.railway.app/health` → OK
-- [ ] Web app loads, sign up / sign in works
-- [ ] Open a draw room — live cursors / drawing sync (WebSocket)
-- [ ] Code generation works (needs `GEMINI_API_KEY` on API)
+Fill in your real URLs:
+
+```text
+API_URL=https://________________.vercel.app
+WEB_URL=https://________________.vercel.app
+DASHBOARD_URL=https://________________.vercel.app
+WS_URL=wss://________________.up.railway.app
+```
+
+| Project | Variable | Value |
+|---------|----------|--------|
+| **API (Vercel)** | `DATABASE_URL` | your Postgres pooled URL |
+| **API (Vercel)** | `JWT_SECRET` | your secret |
+| **API (Vercel)** | `GEMINI_API_KEY` | your Gemini key |
+| **API (Vercel)** | `WEB_APP_URL` | `WEB_URL` |
+| **API (Vercel)** | `DASHBOARD_URL` | `DASHBOARD_URL` |
+| **Web (Vercel)** | `NEXT_PUBLIC_HTTP_API` | `API_URL` |
+| **Web (Vercel)** | `NEXT_PUBLIC_WS_URL` | `WS_URL` |
+| **Web (Vercel)** | `NEXT_PUBLIC_DASHBOARD_URL` | `DASHBOARD_URL` |
+| **Dashboard (Vercel)** | `NEXT_PUBLIC_HTTP_API` | `API_URL` |
+| **Dashboard (Vercel)** | `NEXT_PUBLIC_WS_METRICS` | `https://....up.railway.app/metrics` |
+| **WS (Railway)** | `DATABASE_URL` | same as API |
+| **WS (Railway)** | `JWT_SECRET` | same as API |
 
 ---
 
-## Redeploy after code changes
+## Step 6 — Smoke tests
 
-| Service | What happens |
-|---------|----------------|
-| Vercel (3 projects) | Auto-deploy on `git push` to main |
-| Railway | Auto-deploy on `git push` to main |
+| Test | How |
+|------|-----|
+| API health | `GET API_URL/health` |
+| WS health | `GET https://....railway.app/health` |
+| Auth | Sign up + sign in on web app |
+| Drawing room | Create/join room — canvas loads |
+| Live sync | Two browser tabs — cursors/drawings sync |
+| AI code gen | Code tab → Generate Premium UI |
 
 ---
 
 ## Troubleshooting
 
-**CORS errors on API**  
-Set `WEB_APP_URL` on the API project to your exact web URL (no trailing slash).
+| Problem | Fix |
+|---------|-----|
+| CORS error on API | Set `WEB_APP_URL` exactly to web URL (https, no trailing `/`). Redeploy API. |
+| WebSocket fails | Use `wss://` + Railway domain. Redeploy **web** after changing `NEXT_PUBLIC_WS_URL`. |
+| `GEMINI_API_KEY not configured` | Add key on **API** Vercel project only. |
+| Prisma / DB errors | Use **pooled** `DATABASE_URL`. Run `prisma migrate deploy`. |
+| Vercel build fails | Confirm **Root Directory** is `apps/web` (not repo root). |
+| Railway build fails | Root Directory must be `apps/ws-backend`. Check build logs for `pnpm turbo build`. |
+| JWT / auth works on web but not WS | `JWT_SECRET` must match on API and Railway. |
 
-**WebSocket won’t connect**  
-Use `wss://` (not `ws://`) and the Railway public domain. Redeploy web after changing `NEXT_PUBLIC_WS_URL`.
+---
 
-**Database errors on Vercel**  
-Use a pooled `DATABASE_URL`. Run `prisma migrate deploy` if tables are missing.
+## Auto-deploy
 
-**Build fails on Vercel**  
-Ensure Root Directory is set correctly (`apps/web`, not repo root). Install/build commands are in each `vercel.json`.
+All four services redeploy on `git push` to your connected branch (usually `main`).
+
+---
+
+## Local development (reference)
+
+| Service | Port | Command |
+|---------|------|---------|
+| API | 4000 | `pnpm --filter http-backend dev` |
+| Web | 4001 | `pnpm --filter web dev` |
+| Dashboard | 4002 | `pnpm --filter dashboard dev` |
+| WebSocket | 4003 | `pnpm --filter ws-backend dev` |
+
+Local `.env` at repo root — see `.env.example`.

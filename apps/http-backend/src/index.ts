@@ -2,8 +2,11 @@ import path from "path";
 import { config } from "dotenv";
 import { createApp } from "./app";
 
+const repoRoot = path.resolve(__dirname, "../../..");
+
 if (!process.env.VERCEL) {
-  config({ path: path.resolve(__dirname, "../../../.env") });
+  config({ path: path.join(repoRoot, ".env.http-backend") });
+  config({ path: path.join(repoRoot, ".env") });
 }
 
 const app = createApp();
