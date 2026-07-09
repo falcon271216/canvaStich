@@ -1,0 +1,9 @@
+[build]
+builder = "NIXPACKS"
+buildCommand = "cd ../.. && pnpm install && pnpm turbo build --filter=ws-backend..."
+
+[deploy]
+startCommand = "node dist/index.js"
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"

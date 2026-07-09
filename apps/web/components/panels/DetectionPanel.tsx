@@ -3,9 +3,10 @@
 import { Zap, AlertTriangle } from "lucide-react";
 import type { UIDetectionResult, UIComponentType } from "@repo/pattern-detection";
 import { UI_COMPONENT_ICONS, UI_COMPONENT_DISPLAY_NAMES, UI_COMPONENT_LABELS } from "@repo/pattern-detection";
+import { COMPOSITE_DISPLAY_NAMES } from "../../lib/wireframeGroups";
 
 interface DetectionPanelProps {
-  detections: (UIDetectionResult & { id?: string })[];
+  detections: (UIDetectionResult & { id?: string; hidden?: boolean; compositeType?: string })[];
   selectedId: string | null;
   onSelectComponent: (id: string) => void;
   onUpdateNodeType?: (id: string, newType: UIComponentType) => void;
@@ -43,7 +44,9 @@ export function getComponentColor(type: string): string {
 }
 
 export default function DetectionPanel({ detections, selectedId, onSelectComponent, onUpdateNodeType }: DetectionPanelProps) {
-  if (detections.length === 0) {
+  const visibleDetections = detections.filter((d) => !d.hidden);
+
+  if (visibleDetections.length === 0) {
     return (
       <div className="detection-empty">
         <Zap size={20} style={{ color: "var(--text-dim)", marginBottom: "0.5rem" }} />
@@ -57,7 +60,7 @@ export default function DetectionPanel({ detections, selectedId, onSelectCompone
     );
   }
 
-  const uncertain = detections.filter(c => c.source === 'freehand' && c.confidence < 0.6);
+  const uncertain = visibleDetections.filter(c => c.source === 'freehand' && c.confidence < 0.6);
 
   return (
     <div className="detection-list" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -99,9 +102,11 @@ export default function DetectionPanel({ detections, selectedId, onSelectCompone
         </div>
       )}
 
-      {detections.map((det, idx) => {
+      {visibleDetections.map((det, idx) => {
         const icon = UI_COMPONENT_ICONS[det.type] || '📦';
-        const name = UI_COMPONENT_DISPLAY_NAMES[det.type] || det.type;
+        const name = det.compositeType
+          ? (COMPOSITE_DISPLAY_NAMES[det.compositeType] ?? det.compositeType.replace(/_/g, " "))
+          : (UI_COMPONENT_DISPLAY_NAMES[det.type] || det.type);
         const color = getComponentColor(det.type);
         const isSelected = selectedId === det.id;
 

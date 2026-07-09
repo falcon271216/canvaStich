@@ -22,8 +22,10 @@ const PALETTE_SECTIONS: PaletteSection[] = [
   {
     label: "Layout",
     items: [
-      { id: "navbar",   icon: "▬",  label: "Navbar",   defaultSize: { w: 600, h: 50  } },
+      { id: "navbar",   icon: "▬",  label: "Header",   defaultSize: { w: 600, h: 50  } },
       { id: "hero",     icon: "⬛", label: "Hero",     defaultSize: { w: 600, h: 300 } },
+      { id: "slideshow", icon: "⏵", label: "Slideshow", defaultSize: { w: 700, h: 320 }, description: "Carousel image + controls + caption" },
+      { id: "offer_section", icon: "💸", label: "Offer Section", defaultSize: { w: 700, h: 360 }, description: "Image + value text + CTA button" },
       { id: "section",  icon: "□",  label: "Section",  defaultSize: { w: 600, h: 220 } },
       { id: "sidebar",  icon: "▯",  label: "Sidebar",  defaultSize: { w: 180, h: 400 } },
       { id: "footer",   icon: "▬",  label: "Footer",   defaultSize: { w: 600, h: 100 } },
@@ -67,7 +69,9 @@ const PALETTE_SECTIONS: PaletteSection[] = [
     items: [
       { id: "tpl_landing",   icon: "🏠", label: "Landing",   defaultSize: { w: 600, h: 500 }, description: "Hero + Features + CTA" },
       { id: "tpl_dashboard", icon: "📊", label: "Dashboard", defaultSize: { w: 600, h: 500 }, description: "Sidebar + Stats + Table" },
-      { id: "tpl_auth",      icon: "🔐", label: "Login",     defaultSize: { w: 400, h: 400 }, description: "Centered auth form" },
+      { id: "auth_login",    icon: "🔐", label: "Login",     defaultSize: { w: 520, h: 440 }, description: "Email/password login + social buttons" },
+      { id: "auth_signup",   icon: "✅", label: "Sign Up",   defaultSize: { w: 520, h: 500 }, description: "Name/email/password sign up + terms checkbox" },
+      { id: "profile_page",  icon: "👤", label: "Profile",   defaultSize: { w: 560, h: 520 }, description: "Cover image + avatar + profile form" },
       { id: "tpl_pricing",   icon: "💳", label: "Pricing",   defaultSize: { w: 600, h: 400 }, description: "3-tier pricing cards" },
     ],
   },
@@ -95,7 +99,7 @@ export default function ComponentPalette({
   width = 200,
 }: ComponentPaletteProps) {
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(["Layout", "Content", "Forms"])
+    new Set(["Layout", "Content", "Forms", "Templates"])
   );
   const dragItemRef = useRef<PaletteItem | null>(null);
   const dragGhostRef = useRef<HTMLDivElement | null>(null);

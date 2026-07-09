@@ -1151,6 +1151,8 @@ input:focus {
   padding: 0;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Detection Panel ── */
@@ -1398,6 +1400,33 @@ input:focus {
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
+}
+.code-output-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 1.25rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  min-height: 120px;
+}
+.premium-code-fallback {
+  margin: 0;
+  padding: 0.75rem;
+  font-family: 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+  font-size: 0.72rem;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: #e5e7eb;
 }
 .code-name-field label {
   display: block;
@@ -1689,7 +1718,7 @@ input:focus {
   display: flex;
   flex-direction: column;
   flex: 1;
-  min-height: 0;
+  min-height: 220px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -1733,7 +1762,59 @@ input:focus {
 }
 .premium-output-actions {
   display: flex;
-  gap: 3px;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+  max-width: 60%;
+}
+
+/* ── Code tab header with copy ── */
+.premium-code-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.premium-code-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(0, 0, 0, 0.25);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.premium-code-header-label {
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.premium-copy-all-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #fff;
+  background: #2563eb;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  white-space: nowrap;
+}
+.premium-copy-all-btn:hover {
+  background: #1d4ed8;
+}
+.premium-copy-all-btn.copied {
+  background: #16a34a;
+}
+.premium-copy-all-btn.copied:hover {
+  background: #15803d;
 }
 
 /* ── Preview Iframe ── */

@@ -1,5 +1,10 @@
 import React, { useCallback, useEffect, useRef } from "react";
 import type { UIDetectionResult } from "@repo/pattern-detection";
+import {
+  cyclePickId,
+  detectionsAtPoint,
+  sortDetectionsForHitLayer,
+} from "../lib/detectionHitTest";
 
 type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -13,7 +18,7 @@ interface TransformData {
 }
 
 interface TransformOverlayProps {
-  detections: (UIDetectionResult & { id: string })[];
+  detections: (UIDetectionResult & { id: string; hidden?: boolean })[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
   onUpdateBBox: (
@@ -24,6 +29,7 @@ interface TransformOverlayProps {
   onOpenAnnotation: (id: string) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
+  clientToWorld: (clientX: number, clientY: number) => { x: number; y: number };
   zoom?: number;
 }
 
@@ -35,13 +41,18 @@ export function TransformOverlay({
   onOpenAnnotation,
   onDelete,
   onDuplicate,
+  clientToWorld,
   zoom = 1,
 }: TransformOverlayProps) {
+  const interactiveDetections = detections.filter((d) => !d.hidden);
   const zoomRef = useRef(zoom);
   zoomRef.current = zoom;
   const activeTransform = useRef<TransformData | null>(null);
   const onUpdateBBoxRef = useRef(onUpdateBBox);
   onUpdateBBoxRef.current = onUpdateBBox;
+  const clientToWorldRef = useRef(clientToWorld);
+  clientToWorldRef.current = clientToWorld;
+  const pickSessionRef = useRef<{ x: number; y: number; ids: string[]; index: number } | null>(null);
 
   const handleGlobalPointerMove = useCallback((e: PointerEvent) => {
     const tf = activeTransform.current;
@@ -119,10 +130,24 @@ export function TransformOverlay({
     };
   }, [handleGlobalPointerMove, handleGlobalPointerUp]);
 
-  const startDrag = (e: React.PointerEvent, id: string, bbox: { x: number; y: number; width: number; height: number }) => {
+  const resolvePick = useCallback(
+    (clientX: number, clientY: number) => {
+      const world = clientToWorldRef.current(clientX, clientY);
+      const hits = detectionsAtPoint(interactiveDetections, world.x, world.y);
+      const { id, session } = cyclePickId(hits, pickSessionRef.current, clientX, clientY);
+      pickSessionRef.current = session;
+      return { id, hits, bbox: hits.find((h) => h.id === id)?.boundingBox };
+    },
+    [interactiveDetections],
+  );
+
+  const startDrag = (
+    e: React.PointerEvent,
+    id: string,
+    bbox: { x: number; y: number; width: number; height: number },
+  ) => {
     e.stopPropagation();
     e.preventDefault();
-    onSelect(id);
     activeTransform.current = {
       id,
       mode: "drag",
@@ -154,41 +179,97 @@ export function TransformOverlay({
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
   };
 
-  const handleClickComponent = (e: React.PointerEvent, id: string) => {
-    e.stopPropagation();
-    e.preventDefault();
-    onSelect(id);
-  };
+  const handleHitPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.stopPropagation();
+      e.preventDefault();
 
-  const selectedComponent = detections.find((d) => d.id === selectedId);
+      const { id, bbox } = resolvePick(e.clientX, e.clientY);
+      if (!id || !bbox) return;
+
+      onSelect(id);
+      startDrag(e, id, bbox);
+    },
+    [onSelect, resolvePick],
+  );
+
+  const selectedComponent = interactiveDetections.find((d) => d.id === selectedId);
+  const hitLayer = sortDetectionsForHitLayer(interactiveDetections);
   const handleHalf = 8 / zoom;
   const handleSize = handleHalf * 2;
   const strokeScale = 1.5 / zoom;
+
+  const hasOverlappingSelection = selectedComponent
+    ? interactiveDetections.some((other) => {
+        if (other.id === selectedComponent.id) return false;
+        const a = selectedComponent.boundingBox;
+        const b = other.boundingBox;
+        return !(
+          a.x + a.width <= b.x ||
+          b.x + b.width <= a.x ||
+          a.y + a.height <= b.y ||
+          b.y + b.height <= a.y
+        );
+      })
+    : false;
 
   return (
     <svg
       className="transform-overlay-svg"
       style={{ position: "absolute", left: 0, top: 0, width: 1, height: 1, overflow: "visible", pointerEvents: "none", zIndex: 10 }}
     >
-      {detections.map((det) => {
-        const { x, y, width, height } = det.boundingBox;
-        const isSelected = det.id === selectedId;
-        if (isSelected) return null;
+      {selectedComponent && (() => {
+        const { x, y, width, height } = selectedComponent.boundingBox;
+
         return (
-          <rect
-            key={det.id}
-            x={x}
-            y={y}
-            width={width}
-            height={height}
-            fill="transparent"
-            stroke="transparent"
-            strokeWidth={8 / zoom}
-            style={{ cursor: "pointer", pointerEvents: "all" }}
-            onPointerDown={(e) => handleClickComponent(e, det.id)}
-          />
+          <g className="selection-overlay-visual" style={{ pointerEvents: "none" }}>
+            <rect
+              x={x}
+              y={y}
+              width={width}
+              height={height}
+              fill="rgba(37, 99, 235, 0.06)"
+              stroke="#2563EB"
+              strokeWidth={strokeScale}
+              strokeDasharray={`${6 / zoom} ${3 / zoom}`}
+            />
+
+            <text
+              x={x + width / 2}
+              y={y - 10 / zoom}
+              textAnchor="middle"
+              fontSize={11 / zoom}
+              fill="#2563EB"
+              fontWeight="bold"
+              style={{ userSelect: "none" }}
+            >
+              {Math.round(width)} × {Math.round(height)}
+              {hasOverlappingSelection ? " · click to cycle" : ""}
+            </text>
+          </g>
         );
-      })}
+      })()}
+
+      {/* Hit targets above visuals: smallest on top for overlapping picks */}
+      <g className="transform-hit-layer" style={{ pointerEvents: "all" }}>
+        {hitLayer.map((det) => {
+          const { x, y, width, height } = det.boundingBox;
+          const isSelected = det.id === selectedId;
+          return (
+            <rect
+              key={`hit-${det.id}`}
+              x={x}
+              y={y}
+              width={width}
+              height={height}
+              fill="transparent"
+              stroke="transparent"
+              style={{ cursor: isSelected ? "move" : "pointer", pointerEvents: "all" }}
+              onPointerDown={handleHitPointerDown}
+            />
+          );
+        })}
+      </g>
 
       {selectedComponent && (() => {
         const { x, y, width, height } = selectedComponent.boundingBox;
@@ -204,32 +285,7 @@ export function TransformOverlay({
         ];
 
         return (
-          <g className="selection-overlay" style={{ pointerEvents: "all" }}>
-            <rect
-              x={x}
-              y={y}
-              width={width}
-              height={height}
-              fill="rgba(37, 99, 235, 0.06)"
-              stroke="#2563EB"
-              strokeWidth={strokeScale}
-              strokeDasharray={`${6 / zoom} ${3 / zoom}`}
-              style={{ cursor: "move", pointerEvents: "all" }}
-              onPointerDown={(e) => startDrag(e, selectedComponent.id, selectedComponent.boundingBox)}
-            />
-
-            <text
-              x={x + width / 2}
-              y={y - 10 / zoom}
-              textAnchor="middle"
-              fontSize={11 / zoom}
-              fill="#2563EB"
-              fontWeight="bold"
-              style={{ pointerEvents: "none", userSelect: "none" }}
-            >
-              {Math.round(width)} × {Math.round(height)}
-            </text>
-
+          <g className="selection-overlay-controls" style={{ pointerEvents: "all" }}>
             {handles.map((h) => (
               <rect
                 key={h.id}

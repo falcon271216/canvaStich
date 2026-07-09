@@ -1,11 +1,56 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
-import { Copy, Download, Check, Code2, Eye, Loader2, AlertTriangle, ExternalLink } from "lucide-react";
+import { useState, useCallback, useRef, useEffect, Component, type ReactNode } from "react";
+import { Copy, Download, Check, Code2, Eye, Loader2, AlertTriangle } from "lucide-react";
 import type { LayoutNode, DesignTheme } from "@repo/pattern-detection";
 import type { ComponentAnnotation } from "../AnnotationEditor";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+class CodeHighlightBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  state = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback;
+    return this.props.children;
+  }
+}
+
+function CodeBlock({ code, framework }: { code: string; framework: "react" | "html" }) {
+  const language = framework === "react" ? "tsx" : "markup";
+  const fallback = (
+    <pre className="premium-code-fallback">
+      <code>{code}</code>
+    </pre>
+  );
+
+  return (
+    <CodeHighlightBoundary fallback={fallback}>
+      <SyntaxHighlighter
+        language={language}
+        style={vscDarkPlus}
+        customStyle={{
+          margin: 0,
+          padding: "0.75rem",
+          background: "transparent",
+          fontSize: "0.72rem",
+          lineHeight: "1.6",
+        }}
+        wrapLongLines
+        PreTag="div"
+      >
+        {code}
+      </SyntaxHighlighter>
+    </CodeHighlightBoundary>
+  );
+}
 
 /* ────────────────────── types ────────────────────── */
 
@@ -54,164 +99,7 @@ function openPreviewInNewTab(htmlCode: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-function openReactPreviewInNewTab(reactCode: string) {
-  // Strip import/export statements that don't work in browser Babel standalone
-  let cleanCode = reactCode
-    // Remove import lines (import React, import { useState }, etc.)
-    .replace(/^import\s+.*?['";]\s*$/gm, '')
-    // Remove export default at the end
-    .replace(/^export\s+default\s+\w+;?\s*$/gm, '')
-    // Convert "export default function X" to "function X"
-    .replace(/^export\s+default\s+function\s+/gm, 'function ')
-    // Convert "export function X" to "function X"
-    .replace(/^export\s+function\s+/gm, 'function ')
-    // Convert "export const X" to "const X"
-    .replace(/^export\s+const\s+/gm, 'const ')
-    // Remove TypeScript type annotations: `: Type` after params/variables
-    .replace(/:\s*(?:React\.)?(?:FC|FunctionComponent|JSX\.Element|ReactNode|string|number|boolean|any)\b/g, '')
-    // Remove TypeScript interface/type blocks
-    .replace(/^(?:interface|type)\s+\w+\s*\{[^}]*\}\s*;?\s*$/gm, '')
-    // Remove 'as' type assertions
-    .replace(/\s+as\s+\w+/g, '')
-    .trim();
-
-  // Detect the component name from the code
-  // Look for: function ComponentName( or const ComponentName = 
-  const funcMatch = cleanCode.match(/^(?:function|const)\s+([A-Z][A-Za-z0-9]*)/m);
-  const componentName = funcMatch ? funcMatch[1] : 'App';
-
-  const shell = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SketchUI Preview</title>
-  <style>
-    body { margin: 0; font-family: system-ui, sans-serif; }
-    #preview-bar {
-      position: fixed; top: 0; left: 0; right: 0;
-      height: 44px; background: #111; color: white;
-      display: flex; align-items: center; padding: 0 16px;
-      gap: 12px; z-index: 9999; font-family: sans-serif; font-size: 13px;
-    }
-    #preview-bar button {
-      padding: 4px 12px; border-radius: 6px; border: none;
-      cursor: pointer; font-size: 12px;
-    }
-    #app { margin-top: 44px; }
-    #viewport-container {
-      transition: max-width 0.3s ease;
-      margin: 0 auto;
-    }
-    #loading-msg {
-      display: flex; align-items: center; justify-content: center;
-      height: calc(100vh - 44px); color: #666; font-size: 14px;
-    }
-    #error-msg {
-      display: none; padding: 24px; margin: 20px;
-      background: #1a0000; border: 1px solid #dc2626; border-radius: 8px;
-      color: #fca5a5; font-size: 13px; white-space: pre-wrap; font-family: monospace;
-    }
-  </style>
-</head>
-<body>
-  <div id="preview-bar">
-    <span style="color: #888">✨ SketchUI Preview</span>
-    <div style="display:flex; gap:6px; margin-left: 16px">
-      <button onclick="setViewport('100%')" style="background:#333; color:white">🖥 Desktop</button>
-      <button onclick="setViewport('768px')" style="background:#333; color:white">📱 Tablet</button>
-      <button onclick="setViewport('375px')" style="background:#333; color:white">📲 Mobile</button>
-    </div>
-    <div style="margin-left:auto; display:flex; gap:6px">
-      <button onclick="copyCode()" style="background:#333; color:white">Copy Code</button>
-      <button onclick="downloadHTML()" style="background:#2563EB; color:white">⬇ Download .html</button>
-    </div>
-  </div>
-  
-  <div id="app">
-    <div id="viewport-container">
-      <div id="root"><div id="loading-msg">Loading preview...</div></div>
-    </div>
-  </div>
-  <div id="error-msg"></div>
-  
-  <script>
-    function setViewport(width) {
-      document.getElementById('viewport-container').style.maxWidth = width;
-      document.getElementById('app').style.background = width === '100%' ? '' : '#e5e7eb';
-      document.getElementById('app').style.padding = width === '100%' ? '' : '20px';
-    }
-    
-    const SOURCE_CODE = ${JSON.stringify(reactCode)};
-    
-    function copyCode() {
-      navigator.clipboard.writeText(SOURCE_CODE).then(function() { alert('Copied!'); });
-    }
-    
-    function downloadHTML() {
-      var a = document.createElement('a');
-      a.href = 'data:text/html,' + encodeURIComponent(document.documentElement.outerHTML);
-      a.download = 'sketchui-component.html';
-      a.click();
-    }
-
-    function showError(msg) {
-      var el = document.getElementById('error-msg');
-      el.textContent = 'Preview Error:\\n\\n' + msg;
-      el.style.display = 'block';
-      var loading = document.getElementById('loading-msg');
-      if (loading) loading.remove();
-    }
-
-    // Load scripts sequentially to ensure proper ordering
-    function loadScript(src) {
-      return new Promise(function(resolve, reject) {
-        var s = document.createElement('script');
-        s.src = src;
-        s.onload = resolve;
-        s.onerror = function() { reject(new Error('Failed to load: ' + src)); };
-        document.head.appendChild(s);
-      });
-    }
-
-    async function bootstrap() {
-      try {
-        await loadScript('https://unpkg.com/react@18/umd/react.development.js');
-        await loadScript('https://unpkg.com/react-dom@18/umd/react-dom.development.js');
-        await loadScript('https://unpkg.com/@babel/standalone/babel.min.js');
-        await loadScript('https://cdn.tailwindcss.com');
-        
-        // Now transform and execute the React code
-        var code = ${JSON.stringify(cleanCode)};
-        code += '\\n\\nvar root = ReactDOM.createRoot(document.getElementById("root"));';
-        code += '\\nroot.render(React.createElement(' + ${JSON.stringify(componentName)} + '));';
-        
-        var transformed = Babel.transform(code, {
-          presets: ['react'],
-          filename: 'component.jsx'
-        }).code;
-        
-        // Execute the transformed code
-        var scriptEl = document.createElement('script');
-        scriptEl.textContent = transformed;
-        document.body.appendChild(scriptEl);
-      } catch(err) {
-        showError(err.message || String(err));
-      }
-    }
-
-    bootstrap();
-  </script>
-</body>
-</html>`;
-  
-  const blob = new Blob([shell], { type: 'text/html' });
-  const url  = URL.createObjectURL(blob);
-  window.open(url, '_blank');
-  // Don't revoke too early — give CDN scripts time to load
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
-
+import { openReactPreviewInNewTab } from "../../lib/reactPreviewShell";
 /* ────────────────────── component ────────────────────── */
 
 export default function CodeExportPanel({
@@ -227,7 +115,8 @@ export default function CodeExportPanel({
   const [componentName, setComponentName] = useState("GeneratedComponent");
   const [state, setState] = useState<GenerationState>("idle");
   const [generatedCode, setGeneratedCode] = useState("");
-  const [activeTab, setActiveTab] = useState<OutputTab>("preview");
+  const [generatedFramework, setGeneratedFramework] = useState<"react" | "html" | null>(null);
+  const [activeTab, setActiveTab] = useState<OutputTab>("code");
   const [copied, setCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const autoGenRef = useRef(false);
@@ -281,14 +170,15 @@ export default function CodeExportPanel({
       await new Promise(r => setTimeout(r, 400));
 
       setGeneratedCode(code);
+      setGeneratedFramework(framework);
       setState("preview");
-      setActiveTab("preview");
+      setActiveTab("code");
       onGenerationComplete?.();
 
       // Auto-open preview tab immediately
       setTimeout(() => {
         if (framework === 'html') openPreviewInNewTab(code);
-        else openReactPreviewInNewTab(code);
+        else openReactPreviewInNewTab(code, componentName);
       }, 100);
     } catch (err: any) {
       setState("error");
@@ -403,9 +293,14 @@ export default function CodeExportPanel({
         {(["html", "react"] as const).map((f) => (
           <button
             key={f}
+            type="button"
             onClick={() => {
               setFramework(f);
-              if (state === "preview") setState("idle");
+              if (generatedFramework && generatedFramework !== f) {
+                setGeneratedCode("");
+                setGeneratedFramework(null);
+                setState("idle");
+              }
             }}
             className={`code-framework-btn ${framework === f ? "active" : ""}`}
           >
@@ -462,7 +357,7 @@ export default function CodeExportPanel({
       )}
 
       {/* Output Area */}
-      {state === "preview" && generatedCode && (
+      {state === "preview" && generatedCode ? (
         <div className="premium-output">
           {/* Tab bar + actions */}
           <div className="premium-output-toolbar">
@@ -485,8 +380,9 @@ export default function CodeExportPanel({
             <div className="premium-output-actions">
               <button
                 onClick={() => {
-                  if (framework === 'html') openPreviewInNewTab(generatedCode);
-                  else openReactPreviewInNewTab(generatedCode);
+                  const fw = generatedFramework ?? framework;
+                  if (fw === "html") openPreviewInNewTab(generatedCode);
+                  else openReactPreviewInNewTab(generatedCode, componentName);
                 }}
                 className="flex items-center gap-2 px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-500 transition font-medium text-xs"
               >
@@ -509,25 +405,36 @@ export default function CodeExportPanel({
               Preview opened in new tab.
             </div>
           ) : (
-            <div className="premium-code-view">
-              <SyntaxHighlighter
-                language={framework === "react" ? "jsx" : "htmlbars"}
-                style={vscDarkPlus}
-                customStyle={{
-                  margin: 0,
-                  padding: "0.75rem",
-                  background: "transparent",
-                  fontSize: "0.72rem",
-                  lineHeight: "1.6",
-                }}
-                wrapLongLines
-              >
-                {generatedCode}
-              </SyntaxHighlighter>
+            <div className="premium-code-panel">
+              <div className="premium-code-header">
+                <span className="premium-code-header-label">
+                  {(generatedFramework ?? framework) === "react" ? "React / TSX" : "HTML"} source
+                </span>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className={`premium-copy-all-btn ${copied ? "copied" : ""}`}
+                  title="Copy all code to clipboard"
+                >
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? "Copied!" : "Copy All"}
+                </button>
+              </div>
+              <div className="premium-code-view">
+                <CodeBlock code={generatedCode} framework={generatedFramework ?? framework} />
+              </div>
             </div>
           )}
         </div>
-      )}
+      ) : state === "idle" ? (
+        <div className="code-output-placeholder">
+          <Code2 size={18} style={{ opacity: 0.4 }} />
+          <p>
+            Click <strong>Generate Premium UI</strong> to create{" "}
+            {framework === "react" ? "React" : "HTML"} code from your wireframe.
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

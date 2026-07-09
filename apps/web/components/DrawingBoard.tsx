@@ -33,7 +33,20 @@ import { getComponentColor } from "./panels/DetectionPanel";
 import PanelResizeHandle from "./PanelResizeHandle";
 import { useBoardViewport } from "../hooks/useBoardViewport";
 import { applyCameraTransform, screenToWorld } from "../lib/viewportCoords";
+import { detectionsAtPoint } from "../lib/detectionHitTest";
+import {
+  COMPOSITE_DISPLAY_NAMES,
+  isWireframeGroupChild,
+  scaleWireframeRect,
+  type WireframeShapeData,
+} from "../lib/wireframeGroups";
 import { Minus, Plus, Maximize2 } from "lucide-react";
+
+type BoardDetection = UIDetectionResult & {
+  id: string;
+  hidden?: boolean;
+  compositeType?: string;
+};
 
 export default function DrawingBoard({ roomId, token }: { roomId: string; token: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -436,18 +449,23 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     }).filter(Boolean) as DetectedComponent[];
 
     // Step 1b: Add wireframe (palette-dropped) shapes as pre-classified components
-    const detectedFromWireframe: DetectedComponent[] = wireframeShapes.map((s, idx) => {
-      const data = s.shapeData as { wireframeType?: string; x?: number; y?: number; w?: number; h?: number };
-      if (!data.wireframeType || data.x == null) return null;
-      return {
-        id: `wf_${idx}`,
-        type: data.wireframeType as UIComponentType,
-        confidence: 1.0, // Pre-classified — 100% confidence
-        boundingBox: { x: data.x!, y: data.y!, width: data.w!, height: data.h! },
-        strokes: [], // No raw strokes — palette stamp
-        source: 'palette',
-      } as DetectedComponent;
-    }).filter(Boolean) as DetectedComponent[];
+    const detectedFromWireframe: (DetectedComponent & { hidden?: boolean; compositeType?: string })[] =
+      wireframeShapes.map((s, idx) => {
+        const data = s.shapeData as WireframeShapeData;
+        if (!data.wireframeType || data.x == null) return null;
+        const isChild = isWireframeGroupChild(data);
+        const compositeType = data.compositeType;
+        return {
+          id: `wf_${idx}`,
+          type: (compositeType ? "container_box" : data.wireframeType) as UIComponentType,
+          confidence: 1.0,
+          boundingBox: { x: data.x!, y: data.y!, width: data.w!, height: data.h! },
+          strokes: [],
+          source: "palette",
+          hidden: isChild,
+          compositeType: data.groupRoot ? compositeType : undefined,
+        } as DetectedComponent & { hidden?: boolean; compositeType?: string };
+      }).filter(Boolean) as (DetectedComponent & { hidden?: boolean; compositeType?: string })[];
 
     // Step 2: Cluster nearby components (ONLY freehand strokes)
     const groups = clusterComponents(detectedFromPencil, 50);
@@ -478,14 +496,16 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     const finalComponents = [...upgradedComponents, ...detectedFromWireframe];
 
     // Step 5: Build detection results for the panel
-    const detResults: (UIDetectionResult & { id: string })[] = finalComponents.map(c => ({
+    const detResults: BoardDetection[] = finalComponents.map((c) => ({
       id: c.id,
       type: c.type,
       confidence: c.confidence,
       boundingBox: c.boundingBox,
-      method: c.source === 'palette' ? 'palette' as const : 'ensemble' as const,
+      method: c.source === "palette" ? ("palette" as const) : ("ensemble" as const),
       allScores: [],
       source: c.source,
+      hidden: (c as { hidden?: boolean }).hidden,
+      compositeType: (c as { compositeType?: string }).compositeType,
     }));
     setDetections(detResults);
 
@@ -506,8 +526,18 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   const handleSelectComponent = useCallback((id: string) => {
     setTool("select");
-    setSelectedComponentId((prev) => (prev === id ? null : id));
+    setSelectedComponentId(id);
   }, []);
+
+  const clientToWorldPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const viewportEl = viewportRef.current;
+      if (!viewportEl) return { x: 0, y: 0 };
+      const rect = viewportEl.getBoundingClientRect();
+      return screenToWorld(clientX, clientY, rect, viewport);
+    },
+    [viewport],
+  );
 
   const hasDrawableContent = shapes.some(
     (s) => s.shapeType === "pencil" || s.shapeType === "wireframe",
@@ -590,9 +620,15 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     const lineScale = 1 / viewport.zoom;
 
     for (const det of detections) {
+      if ((det as BoardDetection).hidden) continue;
+
       const bbox = det.boundingBox;
       const bboxColor = getComponentColor(det.type);
       const isSelected = selectedComponentId === det.id;
+      const compositeType = (det as BoardDetection).compositeType;
+      const label = compositeType
+        ? (COMPOSITE_DISPLAY_NAMES[compositeType] ?? compositeType.replace(/_/g, " "))
+        : det.type.replace(/_/g, " ");
 
       ctx.save();
       ctx.strokeStyle = bboxColor;
@@ -604,7 +640,6 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       ctx.font = `bold ${11 * lineScale}px Inter, sans-serif`;
       ctx.fillStyle = bboxColor;
       ctx.globalAlpha = isSelected ? 1 : 0.7;
-      const label = det.type.replace(/_/g, " ");
       const textW = ctx.measureText(label).width;
       ctx.fillStyle = bboxColor;
       ctx.globalAlpha = 0.85;
@@ -624,22 +659,243 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     const rect = viewportEl.getBoundingClientRect();
     const world = screenToWorld(x, y, rect, viewport);
 
-    const shapeId = createShapeId();
-    const wireframeData: Record<string, unknown> = {
-      wireframeType: item.id,
-      x: world.x - item.defaultSize.w / 2,
-      y: world.y - item.defaultSize.h / 2,
-      w: item.defaultSize.w,
-      h: item.defaultSize.h,
-      stroke: "#64748b",
-      lineWidth: 1.5,
-    };
+    const baseX = world.x - item.defaultSize.w / 2;
+    const baseY = world.y - item.defaultSize.h / 2;
+    const baseW = item.defaultSize.w;
+    const baseH = item.defaultSize.h;
+
+    type Spec = { wireframeType: string; x: number; y: number; w: number; h: number };
+    const specs: Spec[] = [];
+
+    // Composite “sections” are stamped as multiple primitive wireframes.
+    if (item.id === "slideshow") {
+      const slideX = baseX + baseW * 0.12;
+      const slideY = baseY + baseH * 0.12;
+      const slideW = baseW * 0.76;
+      const slideH = baseH * 0.62;
+
+      const btnW = Math.max(24, baseW * 0.08);
+      const btnH = Math.max(18, slideH * 0.28);
+      const centerY = slideY + slideH / 2;
+
+      const prevX = slideX + 10;
+      const nextX = slideX + slideW - btnW - 10;
+      const btnY = centerY - btnH / 2;
+
+      const captionX = slideX + 6;
+      const captionY = slideY + slideH + 10;
+      const captionW = slideW - 12;
+      const captionH = Math.max(34, baseH * 0.15);
+
+      specs.push(
+        { wireframeType: "section", x: baseX, y: baseY, w: baseW, h: baseH },
+        { wireframeType: "image_placeholder", x: slideX, y: slideY, w: slideW, h: slideH },
+        { wireframeType: "button", x: prevX, y: btnY, w: btnW, h: btnH },
+        { wireframeType: "button", x: nextX, y: btnY, w: btnW, h: btnH },
+        { wireframeType: "text_label", x: captionX, y: captionY, w: captionW, h: captionH },
+      );
+    } else if (item.id === "offer_section") {
+      const cardX = baseX;
+      const cardY = baseY;
+      const cardW = baseW;
+      const cardH = baseH;
+
+      const pad = 16;
+      const imgW = cardW * 0.42;
+      const imgH = cardH * 0.55;
+      const imgX = cardX + pad;
+      const imgY = cardY + pad;
+
+      const textX = imgX + imgW + 16;
+      const textW = cardX + cardW - textX - pad;
+
+      const titleH = Math.max(44, cardH * 0.12);
+      const descH = Math.max(64, cardH * 0.18);
+      const listH = Math.max(90, cardH * 0.22);
+      const btnH = Math.max(44, cardH * 0.12);
+
+      const titleY = cardY + pad;
+      const descY = titleY + titleH + 10;
+      const listY = descY + descH + 10;
+      const btnY = cardY + cardH - pad - btnH;
+
+      const btnW = Math.max(120, textW * 0.42);
+
+      specs.push(
+        { wireframeType: "section", x: cardX, y: cardY, w: cardW, h: cardH },
+        { wireframeType: "image_placeholder", x: imgX, y: imgY, w: imgW, h: imgH },
+        { wireframeType: "text_label", x: textX, y: titleY, w: textW, h: titleH },
+        { wireframeType: "text_label", x: textX, y: descY, w: textW, h: descH },
+        { wireframeType: "list", x: textX, y: listY, w: textW, h: listH },
+        { wireframeType: "button", x: textX, y: btnY, w: btnW, h: btnH },
+      );
+    } else if (item.id === "auth_login") {
+      const cardX = baseX;
+      const cardY = baseY;
+      const cardW = baseW;
+      const cardH = baseH;
+
+      const pad = Math.max(12, cardW * 0.03);
+      const innerX = cardX + pad;
+      const innerY = cardY + pad;
+      const innerW = Math.max(140, cardW - pad * 2);
+
+      const titleH = Math.max(36, cardH * 0.12);
+      const fieldH = Math.max(30, cardH * 0.08);
+      const gap = Math.max(8, cardH * 0.02);
+      const checkboxH = Math.max(22, cardH * 0.06);
+      const btnH = Math.max(40, cardH * 0.1);
+      const dividerH = 4;
+      const socialBtnH = Math.max(38, cardH * 0.08);
+
+      const titleY = innerY;
+      const emailY = titleY + titleH + gap;
+      const passwordY = emailY + fieldH + gap;
+      const checkboxY = passwordY + fieldH + gap;
+      const loginBtnY = checkboxY + checkboxH + gap;
+      const dividerY = loginBtnY + btnH + gap;
+      const socialBtnY = dividerY + 16;
+
+      specs.push(
+        { wireframeType: "section", x: cardX, y: cardY, w: cardW, h: cardH },
+        { wireframeType: "text_label", x: innerX, y: titleY, w: innerW, h: titleH },
+        { wireframeType: "input_field", x: innerX, y: emailY, w: innerW, h: fieldH },
+        { wireframeType: "input_field", x: innerX, y: passwordY, w: innerW, h: fieldH },
+        { wireframeType: "checkbox", x: innerX, y: checkboxY, w: innerW, h: checkboxH },
+        { wireframeType: "button", x: innerX, y: loginBtnY, w: innerW, h: btnH },
+        { wireframeType: "divider", x: innerX, y: dividerY, w: innerW, h: dividerH },
+        { wireframeType: "button", x: innerX, y: socialBtnY, w: innerW, h: socialBtnH },
+      );
+    } else if (item.id === "auth_signup") {
+      const cardX = baseX;
+      const cardY = baseY;
+      const cardW = baseW;
+      const cardH = baseH;
+
+      const pad = Math.max(12, cardW * 0.03);
+      const innerX = cardX + pad;
+      const innerY = cardY + pad;
+      const innerW = Math.max(140, cardW - pad * 2);
+
+      const titleH = Math.max(36, cardH * 0.12);
+      const fieldH = Math.max(30, cardH * 0.075);
+      const gap = Math.max(8, cardH * 0.018);
+      const checkboxH = Math.max(24, cardH * 0.065);
+      const btnH = Math.max(42, cardH * 0.09);
+      const dividerH = 4;
+      const socialBtnH = Math.max(38, cardH * 0.08);
+
+      const titleY = innerY;
+      const nameY = titleY + titleH + gap;
+      const emailY = nameY + fieldH + gap;
+      const passwordY = emailY + fieldH + gap;
+      const checkboxY = passwordY + fieldH + gap;
+      const signupBtnY = checkboxY + checkboxH + gap;
+      const dividerY = signupBtnY + btnH + gap;
+      const socialBtnY = dividerY + 16;
+
+      specs.push(
+        { wireframeType: "section", x: cardX, y: cardY, w: cardW, h: cardH },
+        { wireframeType: "text_label", x: innerX, y: titleY, w: innerW, h: titleH },
+        { wireframeType: "input_field", x: innerX, y: nameY, w: innerW, h: fieldH },
+        { wireframeType: "input_field", x: innerX, y: emailY, w: innerW, h: fieldH },
+        { wireframeType: "input_field", x: innerX, y: passwordY, w: innerW, h: fieldH },
+        { wireframeType: "checkbox", x: innerX, y: checkboxY, w: innerW, h: checkboxH },
+        { wireframeType: "button", x: innerX, y: signupBtnY, w: innerW, h: btnH },
+        { wireframeType: "divider", x: innerX, y: dividerY, w: innerW, h: dividerH },
+        { wireframeType: "button", x: innerX, y: socialBtnY, w: innerW, h: socialBtnH },
+      );
+    } else if (item.id === "profile_page") {
+      const cardX = baseX;
+      const cardY = baseY;
+      const cardW = baseW;
+      const cardH = baseH;
+
+      const pad = Math.max(12, cardW * 0.03);
+      const innerX = cardX + pad;
+      const innerY = cardY + pad;
+      const innerW = Math.max(180, cardW - pad * 2);
+
+      const coverH = Math.max(120, cardH * 0.28);
+      const avatarS = Math.max(54, cardW * 0.13);
+      const gap = Math.max(10, cardH * 0.02);
+      const fieldH = Math.max(30, cardH * 0.065);
+      const dropdownH = fieldH;
+      const btnH = Math.max(40, cardH * 0.09);
+      const sectionLabelH = Math.max(28, cardH * 0.06);
+
+      const coverY = innerY;
+      const coverX = innerX;
+      const avatarX = innerX + 8;
+      const avatarY = coverY + coverH - avatarS / 2;
+
+      const formX = avatarX + avatarS + 16;
+      const formW = Math.max(160, cardX + cardW - pad - formX);
+      const titleY = coverY + 16;
+
+      const nameY = titleY + sectionLabelH + gap;
+      const emailY = nameY + fieldH + gap;
+      const planY = emailY + fieldH + gap;
+      const saveBtnY = planY + dropdownH + gap;
+
+      const listY = saveBtnY + btnH + gap;
+      const listH = Math.max(90, cardH * 0.23);
+
+      specs.push(
+        { wireframeType: "section", x: cardX, y: cardY, w: cardW, h: cardH },
+        { wireframeType: "image_placeholder", x: coverX, y: coverY, w: innerW, h: coverH },
+        { wireframeType: "avatar", x: avatarX, y: avatarY, w: avatarS, h: avatarS },
+        { wireframeType: "text_label", x: formX, y: titleY, w: formW, h: sectionLabelH },
+        { wireframeType: "input_field", x: formX, y: nameY, w: formW, h: fieldH },
+        { wireframeType: "input_field", x: formX, y: emailY, w: formW, h: fieldH },
+        { wireframeType: "dropdown", x: formX, y: planY, w: formW, h: dropdownH },
+        { wireframeType: "button", x: formX, y: saveBtnY, w: Math.min(240, formW), h: btnH },
+        { wireframeType: "list", x: innerX, y: listY, w: innerW, h: listH },
+      );
+    } else {
+      specs.push({
+        wireframeType: item.id,
+        x: baseX,
+        y: baseY,
+        w: baseW,
+        h: baseH,
+      });
+    }
+
+    const isComposite = specs.length > 1;
+    const groupId = isComposite ? createShapeId() : undefined;
+
+    const shapesToAdd: Array<{ id: string; shapeData: Record<string, unknown> }> = [];
+    specs.forEach((spec, specIndex) => {
+      const shapeId = createShapeId();
+      const wireframeData: Record<string, unknown> = {
+        wireframeType: spec.wireframeType,
+        x: spec.x,
+        y: spec.y,
+        w: spec.w,
+        h: spec.h,
+        stroke: "#64748b",
+        lineWidth: 1.5,
+        ...(groupId
+          ? {
+              groupId,
+              groupRoot: specIndex === 0,
+              compositeType: item.id,
+            }
+          : {}),
+      };
+      shapesToAdd.push({ id: shapeId, shapeData: wireframeData });
+      sendDrawEvent("wireframe" as ShapeType, { ...wireframeData, __id: shapeId });
+    });
 
     setShapes((prev) => [
       ...prev,
-      { id: shapeId, shapeType: "wireframe" as ShapeType, shapeData: wireframeData },
+      ...shapesToAdd.map((s) => ({
+        id: s.id,
+        shapeType: "wireframe" as ShapeType,
+        shapeData: s.shapeData,
+      })),
     ]);
-    sendDrawEvent("wireframe" as ShapeType, { ...wireframeData, __id: shapeId });
   }, [sendDrawEvent, viewport]);
 
   /* ── Canvas drag-over / drop handlers (on viewport — canvas ignores events in select mode) ── */
@@ -724,21 +980,66 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       const wfIdx = parseInt(id.replace("wf_", ""), 10);
       setShapes((prev) => {
         let wfCount = 0;
+        let targetData: WireframeShapeData | null = null;
+        for (const s of prev) {
+          if (s.shapeType !== "wireframe") continue;
+          if (wfCount === wfIdx) {
+            targetData = s.shapeData as WireframeShapeData;
+            break;
+          }
+          wfCount++;
+        }
+
+        if (!targetData || !scaleFrom) return prev;
+
+        const groupId = targetData.groupId;
+        if (!groupId) {
+          let count = 0;
+          return prev.map((s) => {
+            if (s.shapeType !== "wireframe") return s;
+            if (count++ === wfIdx) {
+              return {
+                ...s,
+                shapeData: {
+                  ...s.shapeData,
+                  x: newBBox.x,
+                  y: newBBox.y,
+                  w: newBBox.width,
+                  h: newBBox.height,
+                },
+              };
+            }
+            return s;
+          });
+        }
+
+        let rootData: WireframeShapeData | null = null;
+        for (const s of prev) {
+          if (s.shapeType !== "wireframe") continue;
+          const data = s.shapeData as WireframeShapeData;
+          if (data.groupId === groupId && data.groupRoot) {
+            rootData = data;
+            break;
+          }
+        }
+
+        const groupFrom = rootData
+          ? { x: rootData.x!, y: rootData.y!, width: rootData.w!, height: rootData.h! }
+          : scaleFrom;
+
         return prev.map((s) => {
           if (s.shapeType !== "wireframe") return s;
-          if (wfCount++ === wfIdx) {
-            return {
-              ...s,
-              shapeData: {
-                ...s.shapeData,
-                x: newBBox.x,
-                y: newBBox.y,
-                w: newBBox.width,
-                h: newBBox.height,
-              },
-            };
-          }
-          return s;
+          const data = s.shapeData as WireframeShapeData;
+          if (data.groupId !== groupId) return s;
+          const scaled = scaleWireframeRect(
+            { x: data.x!, y: data.y!, w: data.w!, h: data.h! },
+            groupFrom,
+            newBBox,
+          );
+          return {
+            ...s,
+            shapeData: { ...data, x: scaled.x, y: scaled.y, w: scaled.w, h: scaled.h },
+          };
         });
       });
       requestAnimationFrame(() => renderCanvas());
@@ -777,16 +1078,44 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       const wfIdx = parseInt(id.replace('wf_', ''), 10);
       setShapes((prev) => {
         let wfCount = 0;
-        let removedId: string | null = null;
-        const next = prev.filter((s) => {
-          if (s.shapeType !== 'wireframe') return true;
-          if (wfCount++ === wfIdx) {
-            removedId = s.id;
-            return false;
+        let groupId: string | undefined;
+        for (const s of prev) {
+          if (s.shapeType !== 'wireframe') continue;
+          if (wfCount === wfIdx) {
+            groupId = (s.shapeData as WireframeShapeData).groupId;
+            break;
           }
-          return true;
-        });
-        if (removedId) sendDrawEvent("clear_shape", { shapeIds: [removedId] });
+          wfCount++;
+        }
+
+        const removedIds: string[] = [];
+        let next: Shape[];
+
+        if (groupId) {
+          next = prev.filter((s) => {
+            if (s.shapeType !== 'wireframe') return true;
+            const data = s.shapeData as WireframeShapeData;
+            if (data.groupId === groupId) {
+              removedIds.push(s.id);
+              return false;
+            }
+            return true;
+          });
+        } else {
+          let count = 0;
+          next = prev.filter((s) => {
+            if (s.shapeType !== 'wireframe') return true;
+            if (count++ === wfIdx) {
+              removedIds.push(s.id);
+              return false;
+            }
+            return true;
+          });
+        }
+
+        if (removedIds.length > 0) {
+          sendDrawEvent("clear_shape", { shapeIds: removedIds });
+        }
         return next;
       });
     }
@@ -798,29 +1127,54 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       const wfIdx = parseInt(id.replace('wf_', ''), 10);
       setShapes((prev) => {
         let wfCount = 0;
-        let duplicatedShape: Shape | null = null;
+        let groupId: string | undefined;
         for (const s of prev) {
-          if (s.shapeType === 'wireframe') {
-            if (wfCount++ === wfIdx) {
-              const shapeId = createShapeId();
-              duplicatedShape = {
-                id: shapeId,
-                shapeType: s.shapeType,
-                shapeData: {
-                  ...s.shapeData,
-                  x: (s.shapeData as { x: number }).x + 20,
-                  y: (s.shapeData as { y: number }).y + 20,
-                },
-              };
-              sendDrawEvent("wireframe", {
-                ...duplicatedShape.shapeData,
-                __id: shapeId,
-              });
-              break;
-            }
+          if (s.shapeType !== 'wireframe') continue;
+          if (wfCount === wfIdx) {
+            groupId = (s.shapeData as WireframeShapeData).groupId;
+            break;
           }
+          wfCount++;
         }
-        return duplicatedShape ? [...prev, duplicatedShape] : prev;
+
+        const offset = 20;
+        const newGroupId = groupId ? createShapeId() : undefined;
+        const duplicated: Shape[] = [];
+
+        const sourceShapes = groupId
+          ? prev.filter(
+              (s) =>
+                s.shapeType === 'wireframe' &&
+                (s.shapeData as WireframeShapeData).groupId === groupId,
+            )
+          : (() => {
+              let count = 0;
+              for (const s of prev) {
+                if (s.shapeType !== 'wireframe') continue;
+                if (count === wfIdx) return [s];
+                count++;
+              }
+              return [];
+            })();
+
+        for (const s of sourceShapes) {
+          const data = s.shapeData as WireframeShapeData;
+          const shapeId = createShapeId();
+          const nextData = {
+            ...data,
+            x: (data.x ?? 0) + offset,
+            y: (data.y ?? 0) + offset,
+            ...(newGroupId ? { groupId: newGroupId } : {}),
+          };
+          duplicated.push({
+            id: shapeId,
+            shapeType: s.shapeType,
+            shapeData: nextData,
+          });
+          sendDrawEvent("wireframe", { ...nextData, __id: shapeId });
+        }
+
+        return duplicated.length > 0 ? [...prev, ...duplicated] : prev;
       });
     }
   }, [sendDrawEvent]);
@@ -922,9 +1276,14 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               if (tool !== "select") return;
               const target = e.target as HTMLElement;
               if (
-                target === e.currentTarget ||
-                target.classList.contains("draw-canvas")
+                target !== e.currentTarget &&
+                !target.classList.contains("draw-canvas")
               ) {
+                return;
+              }
+              const world = clientToWorldPoint(e.clientX, e.clientY);
+              const hits = detectionsAtPoint(detections, world.x, world.y);
+              if (hits.length === 0) {
                 setSelectedComponentId(null);
               }
             }}
@@ -988,6 +1347,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
                   detections={detections as any}
                   selectedId={selectedComponentId}
                   onSelect={setSelectedComponentId}
+                  clientToWorld={clientToWorldPoint}
                   onUpdateBBox={handleUpdateBBox}
                   onOpenAnnotation={(id) => {
                     const det = detections.find(d => d.id === id);

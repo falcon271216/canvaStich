@@ -155,12 +155,12 @@ DESIGN QUALITY STANDARDS (CRITICAL — the output MUST look premium):
 - Social proof: testimonial cards with avatar initials, name, role, and quote
 - NO Lorem Ipsum — use realistic, compelling placeholder content
 - NO generic labels — infer contextually accurate button text, headings, and descriptions
-- NO external images — use CSS gradients, SVG shapes, or initials for visual elements
+- Images must be mutable: for the hero image, define const heroImageSrc = "REPLACE_ME_HERO_IMAGE_URL" (or a prop named heroImageSrc) and render the hero via an img tag with src={heroImageSrc}. For every image_placeholder, define a replaceable constant named imagePlaceholderSrc (or imagePlaceholderSrc1, imagePlaceholderSrc2, etc.) and render via img src={imagePlaceholderSrc...}. Do not use external http(s) image URLs.
 - Decorative elements: floating gradient orbs, subtle grid backgrounds, border accents
 
 COMPONENT QUALITY:
 - navbar: stylized text logo, horizontal nav links, CTA button, mobile hamburger menu with toggle
-- hero: big headline with gradient text, subtext paragraph, primary + ghost CTA buttons, decorative background element (gradient orb, grid)
+- hero: big headline with gradient text, subtext paragraph, primary + ghost CTA buttons, and a side hero image rendered via a replaceable img tag using the heroImageSrc constant/prop
 - card: rounded corners, padding 24px+, icon/emoji area, title, description, subtle border + layered shadow, hover translateY(-4px) with shadow increase
 - button: gradient or solid fill, padding 12px 24px+, rounded, hover brightness/scale, focus ring
 - form inputs: label above, 1px border, focus ring with primary accent color, placeholder text, rounded

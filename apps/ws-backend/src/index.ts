@@ -1,8 +1,6 @@
 import path from "path";
 import { config } from "dotenv";
-
-config({ path: path.resolve(__dirname, "../../../.env") });
-
+import http from "http";
 import express from "express";
 import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
@@ -10,6 +8,10 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { prismaClient } from "@repo/db/client";
 import { getMetrics, getContentType, wsConnectionsActive, drawEventsTotal, activeRoomsGauge } from "./metrics";
+
+if (!process.env.RAILWAY_ENVIRONMENT && !process.env.VERCEL) {
+  config({ path: path.resolve(__dirname, "../../../.env") });
+}
 
 interface AuthPayload extends JwtPayload {
   userId: string;
@@ -23,7 +25,7 @@ interface Client {
 }
 
 const clients: Client[] = [];
-const wss = new WebSocketServer({ port: 4003 });
+const port = Number(process.env.PORT ?? 4003);
 
 function updateActiveRooms(): void {
   const roomIds = new Set<string>();
@@ -40,14 +42,22 @@ function broadcastToRoom(roomId: string, senderWs: WebSocket | null, data: objec
   });
 }
 
-const metricsApp = express();
-metricsApp.use(cors());
-metricsApp.get("/metrics", async (_req, res) => {
+const app = express();
+app.use(cors());
+app.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true, service: "ws-backend" });
+});
+app.get("/metrics", async (_req, res) => {
   res.set("Content-Type", getContentType());
   res.end(await getMetrics());
 });
-metricsApp.listen(4004, () => {
-  console.log("📊 Metrics on http://localhost:4004/metrics");
+
+const server = http.createServer(app);
+const wss = new WebSocketServer({ server });
+
+server.listen(port, () => {
+  console.log(`🔌 WebSocket server on port ${port}`);
+  console.log(`📊 Metrics at http://localhost:${port}/metrics`);
 });
 
 wss.on("connection", async (ws, request) => {
