@@ -191,13 +191,21 @@ On **API project**, set `DASHBOARD_URL` to dashboard URL → Redeploy API (CORS)
 3. **Settings → Networking → Public Networking → Generate Domain**  
    Example: `sketchui-ws.up.railway.app`
 
-Build/start are in `apps/ws-backend/railway.toml`:
+Build/start are in `apps/ws-backend/railway.toml` and `apps/ws-backend/nixpacks.toml`:
 
 | Setting | Value |
 |---------|--------|
-| Build Command | `cd ../.. && pnpm install && pnpm turbo build --filter=ws-backend...` |
+| Root Directory | **`apps/ws-backend`** (required) |
+| Build | `nixpacks.toml` runs `pnpm turbo build --filter=ws-backend...` only |
 | Start Command | `node dist/index.js` |
 | Health check | `/health` |
+
+**If build fails with `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING` and logs mention `apps/dashboard/next`:**  
+Nixpacks ran the full monorepo `pnpm build` instead of the ws-backend filter. Fix:
+
+1. Confirm **Root Directory** is `apps/ws-backend` (not repo root).
+2. Redeploy — `nixpacks.toml` now overrides the default build.
+3. Fallback: set Root Directory to **repo root**, Builder to **Dockerfile**, path `apps/ws-backend/Dockerfile`.
 
 ### Environment variables (Railway → Variables)
 
@@ -274,7 +282,7 @@ WS_URL=wss://________________.up.railway.app
 | `GEMINI_API_KEY not configured` | Add key on **API** Vercel project only. |
 | Prisma / DB errors | Use **pooled** `DATABASE_URL`. Run `prisma migrate deploy`. |
 | Vercel build fails | Confirm **Root Directory** is `apps/web` (not repo root). |
-| Railway build fails | Root Directory must be `apps/ws-backend`. Check build logs for `pnpm turbo build`. |
+| Railway build fails | Root Directory must be `apps/ws-backend`. If logs show `dashboard/next`, Nixpacks built the whole monorepo — redeploy after `nixpacks.toml` fix, or use `apps/ws-backend/Dockerfile` with repo root. |
 | JWT / auth works on web but not WS | `JWT_SECRET` must match on API and Railway. |
 
 ---

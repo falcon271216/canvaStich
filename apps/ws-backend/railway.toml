@@ -1,6 +1,8 @@
+# Railway → ws-backend service → Settings → Root Directory: apps/ws-backend
+# Variables: DATABASE_URL, JWT_SECRET (from .env.ws-backend)
+
 [build]
 builder = "NIXPACKS"
-buildCommand = "cd ../.. && pnpm install && pnpm turbo build --filter=ws-backend..."
 
 [deploy]
 startCommand = "node dist/index.js"
