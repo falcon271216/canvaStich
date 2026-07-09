@@ -213,7 +213,7 @@ Nixpacks ran the full monorepo `pnpm build` instead of the ws-backend filter. Fi
 |----------|----------|-----------------|
 | `DATABASE_URL` | ✅ Yes | **Same** pooled URL as Vercel API |
 | `JWT_SECRET` | ✅ Yes | **Same** value as Vercel API |
-| `PORT` | ❌ Do not set | Railway injects this automatically |
+| `PORT` | ❌ **Never set** | Railway injects this. If you set `PORT=4003`, healthcheck will fail. |
 
 ### Verify
 
@@ -282,6 +282,7 @@ WS_URL=wss://________________.up.railway.app
 | `GEMINI_API_KEY not configured` | Add key on **API** Vercel project only. |
 | Prisma / DB errors | Use **pooled** `DATABASE_URL`. Run `prisma migrate deploy`. |
 | Vercel build fails | Confirm **Root Directory** is `apps/web` (not repo root). |
+| Railway healthcheck fails | Remove `PORT` from Railway Variables if present. App must listen on Railway's `PORT` and `0.0.0.0`. Redeploy after fix. |
 | Railway build fails | Root Directory must be `apps/ws-backend`. If logs show `dashboard/next`, Nixpacks built the whole monorepo — redeploy after `nixpacks.toml` fix, or use `apps/ws-backend/Dockerfile` with repo root. |
 | JWT / auth works on web but not WS | `JWT_SECRET` must match on API and Railway. |
 

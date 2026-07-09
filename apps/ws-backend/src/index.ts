@@ -29,6 +29,7 @@ interface Client {
 
 const clients: Client[] = [];
 const port = Number(process.env.PORT ?? 4003);
+const host = process.env.HOST ?? "0.0.0.0";
 
 function updateActiveRooms(): void {
   const roomIds = new Set<string>();
@@ -58,9 +59,14 @@ app.get("/metrics", async (_req, res) => {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
-server.listen(port, () => {
-  console.log(`🔌 WebSocket server on port ${port}`);
-  console.log(`📊 Metrics at http://localhost:${port}/metrics`);
+server.listen(port, host, () => {
+  console.log(`🔌 WebSocket server on ${host}:${port}`);
+  console.log(`📊 Metrics at http://${host}:${port}/metrics`);
+});
+
+server.on("error", (err) => {
+  console.error("Server failed to start:", err);
+  process.exit(1);
 });
 
 wss.on("connection", async (ws, request) => {

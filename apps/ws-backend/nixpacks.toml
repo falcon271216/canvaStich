@@ -13,4 +13,4 @@ dependsOn = ["install"]
 cmds = ["cd ../.. && pnpm turbo build --filter=ws-backend..."]
 
 [start]
-cmd = "node dist/index.js"
+cmd = "cd ../.. && node apps/ws-backend/dist/index.js"
