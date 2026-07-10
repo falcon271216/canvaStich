@@ -4,7 +4,7 @@
   "description": "SketchUI HTTP API (Vercel serverless)",
   "main": "index.js",
   "scripts": {
-    "build": "pnpm exec prisma generate --schema=../../packages/db/prisma/schema.prisma && esbuild src/vercel.ts --bundle --platform=node --target=node20 --outfile=api/app.bundle.cjs --external:@prisma/client && node -e \"require('fs').accessSync('api/app.bundle.cjs')\"",
+    "build": "esbuild src/vercel.ts --bundle --platform=node --target=node20 --outfile=api/app.bundle.cjs --external:@prisma/client && node -e \"require('fs').accessSync('api/app.bundle.cjs')\"",
     "start": "node -e \"const h=require('http');const app=require('./api/app.bundle.cjs');h.createServer(app).listen(process.env.PORT||4000,()=>console.log('http://localhost:'+(process.env.PORT||4000)))\"",
     "dev": "pnpm run build && pnpm run start"
   },
