@@ -3,10 +3,5 @@
   "framework": null,
   "installCommand": "cd ../.. && pnpm install",
   "buildCommand": "cd ../.. && pnpm turbo build --filter=http-backend...",
-  "functions": {
-    "api/index.js": {
-      "includeFiles": "dist/vercel-app.cjs"
-    }
-  },
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }

@@ -17,7 +17,6 @@ node_modules
 .env.production.local
 **/.env.local
 apps/http-backend/server.js
-apps/http-backend/dist/vercel-app.cjs
 
 # Testing
 coverage
