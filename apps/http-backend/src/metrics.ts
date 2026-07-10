@@ -2,10 +2,14 @@ import client from "prom-client";
 
 export const register = new client.Registry();
 
-client.collectDefaultMetrics({
-  register,
-  prefix: "excalidraw_http_",
-});
+try {
+  client.collectDefaultMetrics({
+    register,
+    prefix: "excalidraw_http_",
+  });
+} catch (err) {
+  console.warn("[metrics] collectDefaultMetrics skipped:", err);
+}
 
 export const httpRequestDuration = new client.Histogram({
   name: "excalidraw_http_request_duration_seconds",

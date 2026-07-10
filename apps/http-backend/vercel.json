@@ -1,5 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "cd ../.. && pnpm install",
-  "buildCommand": "cd ../.. && pnpm turbo build --filter=http-backend..."
+  "buildCommand": "cd ../.. && pnpm turbo build --filter=http-backend...",
+  "functions": {
+    "index.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    }
+  }
 }

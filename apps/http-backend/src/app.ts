@@ -1,7 +1,7 @@
 import express, { type Express, Request, Response } from "express";
 import cors from "cors";
 import jwt from "jsonwebtoken";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { getPrisma } from "./db";
 import { middleware, metricsMiddleware } from "./middleware";

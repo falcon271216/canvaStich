@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=index.js --external:@prisma/client --external:@repo/db/client --external:bcrypt",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=index.js --external:@prisma/client",
     "start": "node index.js",
     "dev": "pnpm run build && pnpm run start"
   },
@@ -14,7 +14,6 @@
     "@repo/db": "workspace: *",
     "@repo/pattern-detection": "workspace:*",
     "@repo/typescript-config": "workspace:*",
-    "@types/bcrypt": "^5.0.2",
     "esbuild": "^0.25.0"
   },
   "keywords": [],
@@ -23,10 +22,11 @@
   "type": "commonjs",
   "dependencies": {
     "@prisma/client": "6.10.1",
+    "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/jsonwebtoken": "^9.0.10",
-    "bcrypt": "^6.0.0",
+    "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",
     "express": "^5.1.0",
