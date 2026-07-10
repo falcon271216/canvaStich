@@ -1,12 +1,11 @@
-# Railway: Root Directory = repo root (/)
-# Used when Root Directory is apps/ws-backend instead — see ../../railway.toml
+# Railway Root Directory: / (repo root)
+# Railway reads this file if Config-as-code path = apps/ws-backend/railway.toml
 
 [build]
 builder = "DOCKERFILE"
-dockerfilePath = "Dockerfile"
+dockerfilePath = "apps/ws-backend/Dockerfile"
 
 [deploy]
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"
-
