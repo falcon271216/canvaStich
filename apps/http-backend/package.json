@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=server.js --external:@prisma/client",
-    "start": "node server.js",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=api/index.js --external:@prisma/client",
+    "start": "node api/index.js",
     "dev": "pnpm run build && pnpm run start"
   },
   "devDependencies": {
