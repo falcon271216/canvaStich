@@ -1,6 +1,6 @@
 import path from "path";
 import { config } from "dotenv";
-import { createApp } from "./app";
+import { createApp } from "./expressApp";
 
 const repoRoot = path.resolve(__dirname, "../..");
 
