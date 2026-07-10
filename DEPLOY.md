@@ -197,8 +197,13 @@ Build/start are in `apps/ws-backend/railway.toml` and `apps/ws-backend/nixpacks.
 |---------|--------|
 | Root Directory | **`apps/ws-backend`** (required) |
 | Build | `nixpacks.toml` runs `pnpm turbo build --filter=ws-backend...` only |
-| Start Command | `node dist/server.js` |
+| Start Command | `node start.cjs` |
 | Health check | `/health` |
+
+**If healthcheck still fails:** open **Deploy Logs** (not Build Logs). Look for:
+- `[boot] missing bundle` → build output path issue
+- `[boot] loading:` then crash → paste the error (often Prisma or missing env)
+- No `[ws-backend] listening on 0.0.0.0:` → process exited before bind
 
 **Enable public access:** Settings → Networking → **Generate Domain** (screenshot showing "Unexposed service" means no public URL yet — healthcheck can still fail if the process crashes).
 

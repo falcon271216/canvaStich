@@ -1,16 +1,19 @@
 # Service root on Railway: apps/ws-backend
-# Stops Nixpacks from running the monorepo root `pnpm build` (which compiles Next.js apps).
 
 [variables]
 NIXPACKS_NODE_VERSION = "20"
 
 [phases.install]
 dependsOn = ["setup"]
-cmds = ["cd ../.. && corepack enable && pnpm install --frozen-lockfile"]
+# Use subshell so WORKDIR stays apps/ws-backend (cd ../.. would break `node dist/server.js`)
+cmds = ["sh -c 'cd ../.. && corepack enable && pnpm install --frozen-lockfile'"]
 
 [phases.build]
 dependsOn = ["install"]
-cmds = ["cd ../.. && pnpm turbo build --filter=ws-backend..."]
+cmds = [
+  "sh -c 'cd ../.. && pnpm turbo build --filter=ws-backend...'",
+  "test -f dist/server.js || (echo 'missing dist/server.js' && ls -la dist 2>/dev/null || ls -la && exit 1)"
+]
 
 [start]
-cmd = "node dist/server.js"
+cmd = "node start.cjs"
