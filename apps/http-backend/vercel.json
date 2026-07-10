@@ -1,6 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "cd ../.. && pnpm install",
+  "installCommand": "cd ../.. && pnpm install --ignore-scripts && pnpm exec prisma generate --schema=packages/db/prisma/schema.prisma",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
