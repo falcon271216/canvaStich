@@ -3,10 +3,12 @@ import client from "prom-client";
 export const register = new client.Registry();
 
 try {
-  client.collectDefaultMetrics({
-    register,
-    prefix: "excalidraw_http_",
-  });
+  if (!process.env.VERCEL) {
+    client.collectDefaultMetrics({
+      register,
+      prefix: "excalidraw_http_",
+    });
+  }
 } catch (err) {
   console.warn("[metrics] collectDefaultMetrics skipped:", err);
 }

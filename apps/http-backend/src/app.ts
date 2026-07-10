@@ -290,5 +290,12 @@ export function createApp(): Express {
     res.end(await getMetrics());
   });
 
+  app.use((err: unknown, _req: Request, res: Response, _next: () => void) => {
+    console.error("[http-backend] unhandled route error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   return app;
 }
