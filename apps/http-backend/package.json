@@ -1,7 +1,7 @@
 {
   "name": "http-backend",
   "version": "1.0.0",
-  "description": "",
+  "description": "SketchUI HTTP API (Vercel serverless)",
   "main": "index.js",
   "scripts": {
     "build": "pnpm exec prisma generate --schema=../../packages/db/prisma/schema.prisma && esbuild src/vercel.ts --bundle --platform=node --target=node20 --outfile=api/app.bundle.cjs --external:@prisma/client && node -e \"require('fs').accessSync('api/app.bundle.cjs')\"",
