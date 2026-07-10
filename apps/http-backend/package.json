@@ -4,8 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --target=node20 --outfile=api/bundle.cjs --external:@prisma/client && node -e \"require('fs').accessSync('api/bundle.cjs')\"",
-    "start": "node -e \"const h=require('http');const app=require('./api/bundle.cjs');h.createServer(app).listen(process.env.PORT||4000,()=>console.log('http://localhost:'+(process.env.PORT||4000)))\"",
+    "build": "esbuild src/vercel.ts --bundle --platform=node --target=node20 --outfile=api/index.js --external:@prisma/client && node -e \"require('fs').accessSync('api/index.js')\"",
+    "start": "node -e \"const h=require('http');const app=require('./api/index.js');h.createServer(app).listen(process.env.PORT||4000,()=>console.log('http://localhost:'+(process.env.PORT||4000)))\"",
     "dev": "pnpm run build && pnpm run start"
   },
   "devDependencies": {
