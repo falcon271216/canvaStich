@@ -3,7 +3,7 @@ import cors from "cors";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcrypt";
 import { JWT_SECRET } from "@repo/backend-common/config";
-import { prismaClient } from "@repo/db/client";
+import { getPrisma } from "./db";
 import { middleware, metricsMiddleware } from "./middleware";
 import { getMetrics, getContentType } from "./metrics";
 import {
@@ -21,16 +21,20 @@ export function createApp(): Express {
     process.env.WEB_APP_URL,
     process.env.DASHBOARD_URL,
     ...(process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()) ?? []),
-  ].filter(Boolean) as string[];
+  ]
+    .filter(Boolean)
+    .map((o) => o!.replace(/\/$/, "")) as string[];
 
   app.use(
     cors({
       origin:
         allowedOrigins.length > 0
           ? (origin, callback) => {
-              if (!origin || allowedOrigins.includes(origin)) {
+              const normalized = origin?.replace(/\/$/, "");
+              if (!origin || allowedOrigins.includes(normalized!)) {
                 callback(null, true);
               } else {
+                console.warn("[cors] blocked origin:", origin, "allowed:", allowedOrigins);
                 callback(null, false);
               }
             }
@@ -57,7 +61,7 @@ export function createApp(): Express {
 
     const { username, password, name } = parsed.data;
 
-    const existingUser = await prismaClient.user.findUnique({
+    const existingUser = await getPrisma().user.findUnique({
       where: { email: username },
     });
 
@@ -68,7 +72,7 @@ export function createApp(): Express {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    const user = await prismaClient.user.create({
+    const user = await getPrisma().user.create({
       data: {
         email: username,
         password: hashedPassword,
@@ -88,7 +92,7 @@ export function createApp(): Express {
 
     const { username, password } = parsed.data;
 
-    const user = await prismaClient.user.findUnique({
+    const user = await getPrisma().user.findUnique({
       where: { email: username },
     });
 
@@ -123,7 +127,7 @@ export function createApp(): Express {
     let attempts = 0;
 
     while (attempts < 5) {
-      const existing = await prismaClient.room.findUnique({
+      const existing = await getPrisma().room.findUnique({
         where: { slug },
       });
       if (!existing) break;
@@ -132,7 +136,7 @@ export function createApp(): Express {
     }
 
     try {
-      const room = await prismaClient.room.create({
+      const room = await getPrisma().room.create({
         data: {
           name: baseName,
           slug,
@@ -159,7 +163,7 @@ export function createApp(): Express {
       return;
     }
 
-    const drawings = await prismaClient.drawEvent.findMany({
+    const drawings = await getPrisma().drawEvent.findMany({
       where: { roomId },
       orderBy: { createdAt: "asc" },
     });
@@ -168,7 +172,7 @@ export function createApp(): Express {
   });
 
   app.get("/pattern-stats", async (_req: Request, res: Response): Promise<void> => {
-    const completions = await prismaClient.drawEvent.findMany({
+    const completions = await getPrisma().drawEvent.findMany({
       where: { type: "completion" },
       orderBy: { createdAt: "desc" },
       take: 500,
@@ -226,7 +230,7 @@ export function createApp(): Express {
       return;
     }
 
-    const events = await prismaClient.drawEvent.findMany({
+    const events = await getPrisma().drawEvent.findMany({
       where: { roomId },
       orderBy: { createdAt: "asc" },
       select: { createdAt: true, type: true },
@@ -263,7 +267,7 @@ export function createApp(): Express {
       return;
     }
 
-    const messages = await prismaClient.message.findMany({
+    const messages = await getPrisma().message.findMany({
       where: { roomId },
       orderBy: { createdAt: "asc" },
       take: 100,

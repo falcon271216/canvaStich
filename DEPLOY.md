@@ -285,7 +285,7 @@ WS_URL=wss://________________.up.railway.app
 
 | Problem | Fix |
 |---------|-----|
-| CORS error on API | On **API** Vercel project set `WEB_APP_URL` to your exact web origin (e.g. `https://canvastich.doptonin.online`). Add extra domains via comma-separated `ALLOWED_ORIGINS`. Redeploy API. |
+| CORS error on API | First verify `GET /health` returns 200 (not 500). If 500, redeploy API after latest bundle fix. Then set `WEB_APP_URL=https://canvastich.doptonin.online` exactly (no trailing `/`). |
 | WebSocket fails | Use `wss://` + Railway domain. Redeploy **web** after changing `NEXT_PUBLIC_WS_URL`. |
 | `GEMINI_API_KEY not configured` | Add key on **API** Vercel project only. |
 | Prisma / DB errors | Use **pooled** `DATABASE_URL`. Run `prisma migrate deploy`. |

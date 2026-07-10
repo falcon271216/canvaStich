@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import type { Router as RouterType } from "express";
-import { prismaClient } from "@repo/db/client";
+import { getPrisma } from "../db";
 import { middleware } from "../middleware";
 import {
   CreateWorkspaceSchema,
@@ -34,7 +34,7 @@ router.post("/workspaces", middleware, async (req: Request, res: Response): Prom
     }
 
     const userId = (req as any).userId as string;
-    const workspace = await prismaClient.workspace.create({
+    const workspace = await getPrisma().workspace.create({
       data: {
         name: parsed.data.name,
         ownerId: userId,
@@ -53,7 +53,7 @@ router.post("/workspaces", middleware, async (req: Request, res: Response): Prom
 router.get("/workspaces", middleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId as string;
-    const workspaces = await prismaClient.workspace.findMany({
+    const workspaces = await getPrisma().workspace.findMany({
       where: { ownerId: userId },
       include: { _count: { select: { projects: true } } },
       orderBy: { updatedAt: "desc" },
@@ -80,7 +80,7 @@ router.post("/projects", middleware, async (req: Request, res: Response): Promis
     const userId = (req as any).userId as string;
 
     // Verify workspace ownership
-    const workspace = await prismaClient.workspace.findFirst({
+    const workspace = await getPrisma().workspace.findFirst({
       where: { id: parsed.data.workspaceId, ownerId: userId },
       include: { _count: { select: { projects: true } } },
     });
@@ -101,7 +101,7 @@ router.post("/projects", middleware, async (req: Request, res: Response): Promis
       return;
     }
 
-    const project = await prismaClient.project.create({
+    const project = await getPrisma().project.create({
       data: {
         workspaceId: parsed.data.workspaceId,
         name: parsed.data.name,
@@ -110,7 +110,7 @@ router.post("/projects", middleware, async (req: Request, res: Response): Promis
     });
 
     // Track usage event
-    await prismaClient.usageEvent.create({
+    await getPrisma().usageEvent.create({
       data: {
         workspaceId: parsed.data.workspaceId,
         eventType: "project_create",
@@ -138,7 +138,7 @@ router.get("/projects", middleware, async (req: Request, res: Response): Promise
       where.workspaceId = workspaceId;
     }
 
-    const projects = await prismaClient.project.findMany({
+    const projects = await getPrisma().project.findMany({
       where,
       include: {
         workspace: { select: { name: true, plan: true } },
@@ -158,7 +158,7 @@ router.get("/projects", middleware, async (req: Request, res: Response): Promise
 router.get("/projects/:id", middleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId as string;
-    const project = await prismaClient.project.findFirst({
+    const project = await getPrisma().project.findFirst({
       where: {
         id: req.params.id,
         workspace: { ownerId: userId },
@@ -193,7 +193,7 @@ router.patch("/projects/:id", middleware, async (req: Request, res: Response): P
     const userId = (req as any).userId as string;
 
     // Verify ownership
-    const existing = await prismaClient.project.findFirst({
+    const existing = await getPrisma().project.findFirst({
       where: {
         id: req.params.id,
         workspace: { ownerId: userId },
@@ -205,7 +205,7 @@ router.patch("/projects/:id", middleware, async (req: Request, res: Response): P
       return;
     }
 
-    const project = await prismaClient.project.update({
+    const project = await getPrisma().project.update({
       where: { id: req.params.id },
       data: parsed.data,
     });
@@ -222,7 +222,7 @@ router.delete("/projects/:id", middleware, async (req: Request, res: Response): 
   try {
     const userId = (req as any).userId as string;
 
-    const existing = await prismaClient.project.findFirst({
+    const existing = await getPrisma().project.findFirst({
       where: {
         id: req.params.id,
         workspace: { ownerId: userId },
@@ -234,7 +234,7 @@ router.delete("/projects/:id", middleware, async (req: Request, res: Response): 
       return;
     }
 
-    await prismaClient.project.delete({ where: { id: req.params.id } });
+    await getPrisma().project.delete({ where: { id: req.params.id } });
     res.json({ deleted: true });
   } catch (err) {
     console.error("Delete project error:", err);
@@ -247,7 +247,7 @@ router.post("/projects/:id/export", middleware, async (req: Request, res: Respon
   try {
     const userId = (req as any).userId as string;
 
-    const project = await prismaClient.project.findFirst({
+    const project = await getPrisma().project.findFirst({
       where: {
         id: req.params.id,
         workspace: { ownerId: userId },
@@ -267,7 +267,7 @@ router.post("/projects/:id/export", middleware, async (req: Request, res: Respon
       thisMonth.setDate(1);
       thisMonth.setHours(0, 0, 0, 0);
 
-      const exportCount = await prismaClient.usageEvent.count({
+      const exportCount = await getPrisma().usageEvent.count({
         where: {
           workspaceId: project.workspaceId,
           eventType: "code_export",
@@ -286,7 +286,7 @@ router.post("/projects/:id/export", middleware, async (req: Request, res: Respon
       }
     }
 
-    await prismaClient.usageEvent.create({
+    await getPrisma().usageEvent.create({
       data: {
         workspaceId: project.workspaceId,
         eventType: "code_export",
@@ -315,7 +315,7 @@ router.get("/usage", middleware, async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    const workspace = await prismaClient.workspace.findFirst({
+    const workspace = await getPrisma().workspace.findFirst({
       where: { id: workspaceId, ownerId: userId },
       include: { _count: { select: { projects: true } } },
     });
@@ -329,7 +329,7 @@ router.get("/usage", middleware, async (req: Request, res: Response): Promise<vo
     thisMonth.setDate(1);
     thisMonth.setHours(0, 0, 0, 0);
 
-    const exportsThisMonth = await prismaClient.usageEvent.count({
+    const exportsThisMonth = await getPrisma().usageEvent.count({
       where: {
         workspaceId,
         eventType: "code_export",
