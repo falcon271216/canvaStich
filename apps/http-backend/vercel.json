@@ -3,7 +3,11 @@
   "framework": null,
   "installCommand": "cd ../.. && pnpm install",
   "buildCommand": "cd ../.. && pnpm turbo build --filter=http-backend...",
-  "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index" }
+  "version": 2,
+  "builds": [
+    { "src": "api/index.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "api/index.js" }
   ]
 }
