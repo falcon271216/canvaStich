@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/server.js --external:@prisma/client",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/server.js --external:@prisma/client --external:@repo/db/client",
     "start": "node start.cjs",
     "dev": "pnpm run build && pnpm run start"
   },

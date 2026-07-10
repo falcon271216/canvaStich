@@ -5,9 +5,10 @@ import express from "express";
 import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
 import jwt, { JwtPayload } from "jsonwebtoken";
-import { JWT_SECRET } from "@repo/backend-common/config";
-import { prismaClient } from "@repo/db/client";
+import type { PrismaClient } from "@prisma/client";
 import { getMetrics, getContentType, wsConnectionsActive, drawEventsTotal, activeRoomsGauge } from "./metrics";
+
+const JWT_SECRET = process.env.JWT_SECRET || "123123";
 
 const repoRoot = path.resolve(__dirname, "../../..");
 
@@ -25,6 +26,16 @@ process.on("unhandledRejection", (reason) => {
   console.error("unhandledRejection:", reason);
   process.exit(1);
 });
+
+let prismaClient: PrismaClient | null = null;
+
+function getPrisma(): PrismaClient {
+  if (!prismaClient) {
+    // Lazy-load so /health can respond even if Prisma init is slow or fails.
+    prismaClient = require("@repo/db/client").prismaClient as PrismaClient;
+  }
+  return prismaClient;
+}
 
 interface AuthPayload extends JwtPayload {
   userId: string;
@@ -101,7 +112,7 @@ wss.on("connection", async (ws, request) => {
   // Look up user name from DB
   let userName = "Anonymous";
   try {
-    const user = await prismaClient.user.findUnique({
+    const user = await getPrisma().user.findUnique({
       where: { id: userId },
       select: { name: true },
     });
@@ -159,7 +170,7 @@ wss.on("connection", async (ws, request) => {
         // Save to DB (only if roomId is a valid integer)
         if (!isNaN(Number(roomId))) {
           try {
-            await prismaClient.drawEvent.create({
+            await getPrisma().drawEvent.create({
               data: {
                 roomId: Number(roomId),
                 userId,
@@ -203,7 +214,7 @@ wss.on("connection", async (ws, request) => {
         const content = msg.content;
         if (!isNaN(Number(roomId)) && content) {
           try {
-            const saved = await prismaClient.message.create({
+            const saved = await getPrisma().message.create({
               data: {
                 roomId: Number(roomId),
                 userId,

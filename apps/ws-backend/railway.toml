@@ -1,11 +1,11 @@
-# Railway → ws-backend service → Settings → Root Directory: apps/ws-backend
-# Variables: DATABASE_URL, JWT_SECRET (from .env.ws-backend)
+# Railway: Root Directory = repo root (/)
+# Used when Root Directory is apps/ws-backend instead — see ../../railway.toml
 
 [build]
-builder = "NIXPACKS"
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "node start.cjs"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
 restartPolicyType = "ON_FAILURE"

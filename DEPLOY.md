@@ -187,17 +187,17 @@ On **API project**, set `DASHBOARD_URL` to dashboard URL → Redeploy API (CORS)
 ### Railway project settings
 
 1. [railway.app](https://railway.app) → **New Project** → **GitHub Repo** → select same repo.
-2. **Settings → Root Directory:** `apps/ws-backend`
-3. **Settings → Networking → Public Networking → Generate Domain**  
-   Example: `sketchui-ws.up.railway.app`
+2. **Settings → Root Directory:** `/` (repo root) — **not** `apps/ws-backend`
+3. **Settings → Build → Builder:** Dockerfile (auto from root `railway.toml`)
+4. **Settings → Networking → Public Networking → Generate Domain** (port **8080**)
 
-Build/start are in `apps/ws-backend/railway.toml` and `apps/ws-backend/nixpacks.toml`:
+Build/deploy config is in **`railway.toml`** (repo root) and **`apps/ws-backend/Dockerfile`**:
 
 | Setting | Value |
 |---------|--------|
-| Root Directory | **`apps/ws-backend`** (required) |
-| Build | `nixpacks.toml` runs `pnpm turbo build --filter=ws-backend...` only |
-| Start Command | `node start.cjs` |
+| Root Directory | **`/`** (repo root) |
+| Builder | **Dockerfile** → `apps/ws-backend/Dockerfile` |
+| Start | `node start.cjs` (inside container) |
 | Health check | `/health` |
 
 **If healthcheck still fails:** open **Deploy Logs** (not Build Logs). Look for:
