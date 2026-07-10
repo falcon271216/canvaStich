@@ -8,5 +8,5 @@
       "includeFiles": "dist/vercel-app.cjs"
     }
   },
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
