@@ -1,7 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": null,
-  "installCommand": "cd ../.. && pnpm install --ignore-scripts",
-  "buildCommand": "cd ../.. && pnpm --filter @repo/db exec prisma generate && cd apps/http-backend && pnpm exec esbuild src/vercel.ts --bundle --platform=node --target=node20 --outfile=api/app.bundle.cjs --external:@prisma/client",
+  "installCommand": "cd ../.. && pnpm install",
   "rewrites": [{ "source": "/(.*)", "destination": "/api" }]
 }
