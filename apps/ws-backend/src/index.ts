@@ -16,6 +16,16 @@ if (!process.env.RAILWAY_ENVIRONMENT && !process.env.VERCEL) {
   config({ path: path.join(repoRoot, ".env") });
 }
 
+process.on("uncaughtException", (err) => {
+  console.error("uncaughtException:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
+  process.exit(1);
+});
+
 interface AuthPayload extends JwtPayload {
   userId: string;
 }
@@ -60,8 +70,8 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 server.listen(port, host, () => {
-  console.log(`🔌 WebSocket server on ${host}:${port}`);
-  console.log(`📊 Metrics at http://${host}:${port}/metrics`);
+  console.log(`[ws-backend] listening on ${host}:${port} (PORT=${process.env.PORT ?? "unset"})`);
+  console.log(`[ws-backend] health: http://${host}:${port}/health`);
 });
 
 server.on("error", (err) => {

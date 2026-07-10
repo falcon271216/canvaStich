@@ -197,8 +197,10 @@ Build/start are in `apps/ws-backend/railway.toml` and `apps/ws-backend/nixpacks.
 |---------|--------|
 | Root Directory | **`apps/ws-backend`** (required) |
 | Build | `nixpacks.toml` runs `pnpm turbo build --filter=ws-backend...` only |
-| Start Command | `node dist/index.js` |
+| Start Command | `node dist/server.js` |
 | Health check | `/health` |
+
+**Enable public access:** Settings → Networking → **Generate Domain** (screenshot showing "Unexposed service" means no public URL yet — healthcheck can still fail if the process crashes).
 
 **If build fails with `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING` and logs mention `apps/dashboard/next`:**  
 Nixpacks ran the full monorepo `pnpm build` instead of the ws-backend filter. Fix:
@@ -282,7 +284,7 @@ WS_URL=wss://________________.up.railway.app
 | `GEMINI_API_KEY not configured` | Add key on **API** Vercel project only. |
 | Prisma / DB errors | Use **pooled** `DATABASE_URL`. Run `prisma migrate deploy`. |
 | Vercel build fails | Confirm **Root Directory** is `apps/web` (not repo root). |
-| Railway healthcheck fails | Remove `PORT` from Railway Variables if present. App must listen on Railway's `PORT` and `0.0.0.0`. Redeploy after fix. |
+| Railway healthcheck fails | 1) **Delete `PORT`** from Railway Variables. 2) Only set `DATABASE_URL` + `JWT_SECRET`. 3) Enable **Public Networking** → Generate Domain. 4) Check deploy logs for `[ws-backend] listening on 0.0.0.0:...` |
 | Railway build fails | Root Directory must be `apps/ws-backend`. If logs show `dashboard/next`, Nixpacks built the whole monorepo — redeploy after `nixpacks.toml` fix, or use `apps/ws-backend/Dockerfile` with repo root. |
 | JWT / auth works on web but not WS | `JWT_SECRET` must match on API and Railway. |
 

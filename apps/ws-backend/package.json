@@ -4,9 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "build": "tsc -b",
-    "start": "node ./dist/index.js",
-    "dev": "npm run build && npm run start"
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node20 --outfile=dist/server.js --external:@prisma/client",
+    "start": "node ./dist/server.js",
+    "dev": "pnpm run build && pnpm run start"
   },
   "devDependencies": {
     "@repo/backend-common": "workspace:*",
@@ -14,13 +14,15 @@
     "@repo/db": "workspace: *",
     "@repo/typescript-config": "workspace:*",
     "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.3"
+    "@types/express": "^5.0.3",
+    "esbuild": "^0.25.0"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@prisma/client": "6.10.1",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/ws": "^8.18.1",
     "cors": "^2.8.5",
