@@ -196,7 +196,8 @@ Build/deploy config is in **`railway.toml`** (repo root) and **`apps/ws-backend/
 | Setting | Value |
 |---------|--------|
 | Root Directory | **`/`** (repo root) |
-| Builder | **Dockerfile** → `apps/ws-backend/Dockerfile` |
+| Builder | **Dockerfile** → path must be `apps/ws-backend/Dockerfile` |
+| Config-as-code | Either `/railway.toml` (repo root) **or** `apps/ws-backend/railway.toml` — both point to the same Dockerfile |
 | Start | `node start.cjs` (inside container) |
 | Health check | `/health` |
 
@@ -284,7 +285,7 @@ WS_URL=wss://________________.up.railway.app
 
 | Problem | Fix |
 |---------|-----|
-| CORS error on API | Set `WEB_APP_URL` exactly to web URL (https, no trailing `/`). Redeploy API. |
+| CORS error on API | On **API** Vercel project set `WEB_APP_URL` to your exact web origin (e.g. `https://canvastich.doptonin.online`). Add extra domains via comma-separated `ALLOWED_ORIGINS`. Redeploy API. |
 | WebSocket fails | Use `wss://` + Railway domain. Redeploy **web** after changing `NEXT_PUBLIC_WS_URL`. |
 | `GEMINI_API_KEY not configured` | Add key on **API** Vercel project only. |
 | Prisma / DB errors | Use **pooled** `DATABASE_URL`. Run `prisma migrate deploy`. |

@@ -20,12 +20,21 @@ export function createApp(): Express {
   const allowedOrigins = [
     process.env.WEB_APP_URL,
     process.env.DASHBOARD_URL,
-    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : undefined,
+    ...(process.env.ALLOWED_ORIGINS?.split(",").map((o) => o.trim()) ?? []),
   ].filter(Boolean) as string[];
 
   app.use(
     cors({
-      origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+      origin:
+        allowedOrigins.length > 0
+          ? (origin, callback) => {
+              if (!origin || allowedOrigins.includes(origin)) {
+                callback(null, true);
+              } else {
+                callback(null, false);
+              }
+            }
+          : true,
       credentials: true,
     }),
   );
