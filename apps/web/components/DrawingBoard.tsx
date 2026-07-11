@@ -567,6 +567,50 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     }
   }, [layoutTree]);
 
+  /* ── Shape completion: freehand → wireframe replacement ── */
+  const handleShapeCompleted = useCallback(
+    (pencilShapeId: string, uiType: string, bbox: { x: number; y: number; w: number; h: number }) => {
+      // Build the wireframe shape data (same format as palette drops)
+      const wireframeId = createShapeId();
+      const wireframeData: Record<string, unknown> = {
+        wireframeType: uiType,
+        x: bbox.x,
+        y: bbox.y,
+        w: Math.max(bbox.w, 20),
+        h: Math.max(bbox.h, 12),
+        stroke: "#64748b",
+        lineWidth: 1.5,
+      };
+
+      setShapes((prev) => {
+        // Remove the rough pencil stroke
+        const pencilShape = prev.find((s) => s.id === pencilShapeId);
+        const withoutPencil = prev.filter((s) => s.id !== pencilShapeId);
+
+        // Sync pencil removal to collaborators
+        if (pencilShape) {
+          sendDrawEvent("clear_shape", {
+            shapeIds: [pencilShapeId],
+            shapes: [pencilShape.shapeData],
+          });
+        }
+
+        // Stamp clean wireframe
+        const newShape: Shape = {
+          id: wireframeId,
+          shapeType: "wireframe" as ShapeType,
+          shapeData: wireframeData,
+        };
+
+        // Sync wireframe creation to collaborators
+        sendDrawEvent("wireframe" as ShapeType, { ...wireframeData, __id: wireframeId });
+
+        return [...withoutPencil, newShape];
+      });
+    },
+    [sendDrawEvent],
+  );
+
   const {
     handleMouseDown,
     handleMouseUp,
@@ -609,6 +653,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       });
       setSelectedComponentId(null);
     },
+    onShapeCompleted: handleShapeCompleted,
   });
 
   /* ── Combined mouse move handler (canvas drawing + cursor broadcast) ── */

@@ -219,6 +219,26 @@ function shapeIntersectsEraseRegion(
   return false;
 }
 
+/** UI component types that should be auto-completed as wireframe symbols. */
+const AUTO_COMPLETE_UI_TYPES = new Set([
+  'button',
+  'input_field',
+  'checkbox',
+  'radio',
+  'dropdown',
+  'search_bar',
+  'divider',
+  'text_label',
+  'image_placeholder',
+  'avatar',
+  'rating',
+  'testimonial',
+  'notification_bell',
+]);
+
+/** Minimum area (px²) for card auto-completion (skip if looks like a container). */
+const CARD_MAX_AREA_FOR_COMPLETION = 15000;
+
 export function useCanvasManager({
   canvasRef,
   viewportRef,
@@ -229,6 +249,7 @@ export function useCanvasManager({
   strokeWidth,
   onSendDrawEventAction,
   onEraseShapes,
+  onShapeCompleted,
 }: {
   canvasRef: RefObject<HTMLCanvasElement | null>;
   viewportRef: RefObject<HTMLElement | null>;
@@ -239,6 +260,8 @@ export function useCanvasManager({
   strokeWidth: number;
   onSendDrawEventAction: (type: ShapeType, data: Record<string, unknown>, shapeId?: string) => void;
   onEraseShapes: (shapeIds: string[]) => void;
+  /** Called when a freehand stroke is confidently classified as a UI component. */
+  onShapeCompleted?: (pencilShapeId: string, uiType: string, bbox: { x: number; y: number; w: number; h: number }) => void;
 }) {
   const startRef = useRef<Point | null>(null);
   const isDrawing = useRef(false);
@@ -639,47 +662,75 @@ export function useCanvasManager({
 
     if (tool === "pencil") {
       const shapeId = createShapeId();
-      const pathData = { path: [...pencilPath.current], stroke: color, lineWidth: strokeWidth };
+      const capturedPath = [...pencilPath.current];
+      const pathData = { path: capturedPath, stroke: color, lineWidth: strokeWidth };
       onSendDrawEventAction(tool, pathData, shapeId);
 
-      if (pencilPath.current.length >= 8) {
-        import("../lib/ml").then(({ predictPattern }) => {
-          predictPattern(pencilPath.current).then((mlPredictions) => {
-            const result = detectShape(pencilPath.current);
-            if (
-              result.confidence >= PATTERN_CONFIDENCE_THRESHOLD &&
-              result.completion &&
-              result.label !== "unknown"
-            ) {
-              onSendDrawEventAction("analysis", {
-                completion: result.completion,
-                detectedLabel: result.label,
-                confidence: result.confidence,
-                method: result.method,
-                dtwDistance: result.dtwMatch?.normalizedDistance ?? null,
-                velocityProfile: result.strokeFeatures?.velocityProfile ?? null,
-                strokeDuration: result.strokeFeatures?.duration ?? null,
-                meanSpeed: result.strokeFeatures?.meanSpeed ?? null,
-                speedPeaks: result.strokeFeatures?.speedPeaks ?? null,
-                mlPredictions: mlPredictions,
-              });
-            } else if (mlPredictions && mlPredictions.length > 0) {
-              const topPred = mlPredictions[0];
-              if (topPred && topPred.probability > 0.4) {
+      if (capturedPath.length >= 8) {
+        // ── UI component auto-completion (runs first, has priority) ──
+        import("@repo/pattern-detection").then(({ classifyUIComponent, boundingBox }) => {
+          const canvasEl = canvasRef.current;
+          const canvasArea = canvasEl ? canvasEl.width * canvasEl.height : 1600 * 900;
+          const result = classifyUIComponent([capturedPath], canvasArea);
+
+          const shouldComplete =
+            result.confidence >= 0.65 &&
+            (
+              AUTO_COMPLETE_UI_TYPES.has(result.type) ||
+              (result.type === 'card' &&
+                result.boundingBox.width * result.boundingBox.height < CARD_MAX_AREA_FOR_COMPLETION)
+            );
+
+          if (shouldComplete && onShapeCompleted) {
+            onShapeCompleted(shapeId, result.type, {
+              x: result.boundingBox.x,
+              y: result.boundingBox.y,
+              w: result.boundingBox.width,
+              h: result.boundingBox.height,
+            });
+            // Skip geometric completion since UI wireframe will replace the stroke
+            return;
+          }
+
+          // ── Fallback: geometric + ML completion (basic shapes) ──
+          import("../lib/ml").then(({ predictPattern }) => {
+            predictPattern(capturedPath).then((mlPredictions) => {
+              const geoResult = detectShape(capturedPath);
+              if (
+                geoResult.confidence >= PATTERN_CONFIDENCE_THRESHOLD &&
+                geoResult.completion &&
+                geoResult.label !== "unknown"
+              ) {
                 onSendDrawEventAction("analysis", {
-                  completion: { type: "path", path: [...pencilPath.current], stroke: "#a855f7" },
-                  detectedLabel: topPred.className,
-                  confidence: topPred.probability,
-                  method: "cnn",
-                  dtwDistance: null,
-                  velocityProfile: null,
-                  strokeDuration: null,
-                  meanSpeed: null,
-                  speedPeaks: null,
+                  completion: geoResult.completion,
+                  detectedLabel: geoResult.label,
+                  confidence: geoResult.confidence,
+                  method: geoResult.method,
+                  dtwDistance: geoResult.dtwMatch?.normalizedDistance ?? null,
+                  velocityProfile: geoResult.strokeFeatures?.velocityProfile ?? null,
+                  strokeDuration: geoResult.strokeFeatures?.duration ?? null,
+                  meanSpeed: geoResult.strokeFeatures?.meanSpeed ?? null,
+                  speedPeaks: geoResult.strokeFeatures?.speedPeaks ?? null,
                   mlPredictions: mlPredictions,
                 });
+              } else if (mlPredictions && mlPredictions.length > 0) {
+                const topPred = mlPredictions[0];
+                if (topPred && topPred.probability > 0.4) {
+                  onSendDrawEventAction("analysis", {
+                    completion: { type: "path", path: capturedPath, stroke: "#a855f7" },
+                    detectedLabel: topPred.className,
+                    confidence: topPred.probability,
+                    method: "cnn",
+                    dtwDistance: null,
+                    velocityProfile: null,
+                    strokeDuration: null,
+                    meanSpeed: null,
+                    speedPeaks: null,
+                    mlPredictions: mlPredictions,
+                  });
+                }
               }
-            }
+            });
           });
         });
       }
