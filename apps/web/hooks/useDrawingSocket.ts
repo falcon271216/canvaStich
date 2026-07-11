@@ -57,7 +57,7 @@ export function useDrawingSocket({
   onIdentityAction?: (data: { userId: string; userName: string }) => void;
 }) {
   const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
   const callbacksRef = useRef({
     onDrawEventAction,
