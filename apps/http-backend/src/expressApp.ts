@@ -52,6 +52,37 @@ export function createApp(): Express {
   app.use("/api", generateRoutes);
   app.use("/api", projectRoutes);
 
+  // Helper function to check if a user has access to a room
+  async function hasRoomAccess(userId: string, roomId: number): Promise<boolean> {
+    const room = await getPrisma().room.findUnique({
+      where: { id: roomId },
+      include: {
+        members: {
+          where: { userId }
+        }
+      }
+    });
+
+    if (!room) return false;
+
+    // 1. Is admin (created the room)
+    if (room.adminId === userId) return true;
+
+    // 2. Is explicit room member
+    if (room.members.length > 0) return true;
+
+    // 3. Room is linked to a project in a workspace owned by the user
+    const projects = await getPrisma().project.findMany({
+      where: {
+        roomId,
+        workspace: { ownerId: userId }
+      }
+    });
+    if (projects.length > 0) return true;
+
+    return false;
+  }
+
   app.post("/signup", async (req: Request, res: Response): Promise<void> => {
     const parsed = createUserSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -78,6 +109,13 @@ export function createApp(): Express {
         password: hashedPassword,
         name,
       },
+    });
+
+    // Send Welcome Email asynchronously
+    import("./utils/email").then(({ sendWelcomeEmail }) => {
+      sendWelcomeEmail(username, name).catch((err) => {
+        console.error("Welcome email send error:", err);
+      });
     });
 
     res.status(201).json({ userId: user.id });
@@ -156,10 +194,92 @@ export function createApp(): Express {
     }
   });
 
-  app.get("/drawings/:roomId", async (req: Request, res: Response): Promise<void> => {
+  // Invite/add collaborator endpoint
+  app.post("/rooms/:roomId/members", middleware, async (req: Request, res: Response): Promise<void> => {
     const roomId = Number(req.params.roomId);
     if (isNaN(roomId)) {
       res.status(400).json({ error: "Invalid room ID" });
+      return;
+    }
+
+    // @ts-expect-error Added by middleware
+    const userId: string = req.userId;
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ error: "Collaborator email is required" });
+      return;
+    }
+
+    const room = await getPrisma().room.findUnique({
+      where: { id: roomId },
+    });
+
+    if (!room) {
+      res.status(404).json({ error: "Room not found" });
+      return;
+    }
+
+    if (room.adminId !== userId) {
+      res.status(403).json({ error: "Only the room creator can invite collaborators" });
+      return;
+    }
+
+    const collaborator = await getPrisma().user.findUnique({
+      where: { email },
+    });
+
+    if (!collaborator) {
+      res.status(404).json({ error: "User not found. They must register on SketchUI first." });
+      return;
+    }
+
+    try {
+      await getPrisma().roomMember.create({
+        data: {
+          roomId,
+          userId: collaborator.id,
+        },
+      });
+
+      // Send email invite asynchronously
+      const webUrl = process.env.WEB_APP_URL || "http://localhost:4001";
+      const roomUrl = `${webUrl}/draw?room=${roomId}`;
+      const inviter = await getPrisma().user.findUnique({ where: { id: userId } });
+
+      import("./utils/email").then(({ sendRoomInvitation }) => {
+        sendRoomInvitation({
+          toEmail: email,
+          roomName: room.name,
+          roomUrl,
+          inviterName: inviter?.name || "Someone",
+        }).catch((err) => {
+          console.error("Failed to send room invitation email:", err);
+        });
+      });
+
+      res.status(200).json({ success: true, message: "Collaborator added successfully" });
+    } catch (err: any) {
+      if (err?.code === "P2002") {
+        res.status(409).json({ error: "User is already a collaborator in this room" });
+        return;
+      }
+      res.status(500).json({ error: "Failed to add collaborator" });
+    }
+  });
+
+  app.get("/drawings/:roomId", middleware, async (req: Request, res: Response): Promise<void> => {
+    const roomId = Number(req.params.roomId);
+    if (isNaN(roomId)) {
+      res.status(400).json({ error: "Invalid room ID" });
+      return;
+    }
+
+    // @ts-expect-error Added by middleware
+    const userId: string = req.userId;
+    const access = await hasRoomAccess(userId, roomId);
+    if (!access) {
+      res.status(403).json({ error: "You do not have access to this room" });
       return;
     }
 
@@ -223,10 +343,18 @@ export function createApp(): Express {
     res.status(200).json({ byLabel, byMethod, byVelocityProfile, recent });
   });
 
-  app.get("/session-analysis/:roomId", async (req: Request, res: Response): Promise<void> => {
+  app.get("/session-analysis/:roomId", middleware, async (req: Request, res: Response): Promise<void> => {
     const roomId = Number(req.params.roomId);
     if (isNaN(roomId)) {
       res.status(400).json({ error: "Invalid room ID" });
+      return;
+    }
+
+    // @ts-expect-error Added by middleware
+    const userId: string = req.userId;
+    const access = await hasRoomAccess(userId, roomId);
+    if (!access) {
+      res.status(403).json({ error: "You do not have access to this room" });
       return;
     }
 
@@ -260,10 +388,18 @@ export function createApp(): Express {
     }
   });
 
-  app.get("/messages/:roomId", async (req: Request, res: Response): Promise<void> => {
+  app.get("/messages/:roomId", middleware, async (req: Request, res: Response): Promise<void> => {
     const roomId = Number(req.params.roomId);
     if (isNaN(roomId)) {
       res.status(400).json({ error: "Invalid room ID" });
+      return;
+    }
+
+    // @ts-expect-error Added by middleware
+    const userId: string = req.userId;
+    const access = await hasRoomAccess(userId, roomId);
+    if (!access) {
+      res.status(403).json({ error: "You do not have access to this room" });
       return;
     }
 

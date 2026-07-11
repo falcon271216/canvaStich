@@ -268,7 +268,11 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   /* ── Load initial drawings (replay clear_shape so erasures persist) ── */
   const apiBase = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
   useEffect(() => {
-    fetch(`${apiBase}/drawings/${roomId}`)
+    fetch(`${apiBase}/drawings/${roomId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then((data) => {
         const list = (data.drawings ?? []) as { type?: string; data?: unknown }[];
@@ -364,22 +368,30 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
 
   /* ── Load chat history on mount ── */
   useEffect(() => {
-    fetch(`${apiBase}/messages/${roomId}`)
+    fetch(`${apiBase}/messages/${roomId}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    })
       .then((res) => res.json())
       .then((data) => mergeChatHistory(data.messages ?? []))
       .catch(() => {});
-  }, [roomId, apiBase, mergeChatHistory]);
+  }, [roomId, apiBase, mergeChatHistory, token]);
 
   /* ── Poll chat history every 8s as a fallback for missed WS messages ── */
   useEffect(() => {
     const interval = setInterval(() => {
-      fetch(`${apiBase}/messages/${roomId}`)
+      fetch(`${apiBase}/messages/${roomId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      })
         .then((res) => res.json())
         .then((data) => mergeChatHistory(data.messages ?? []))
         .catch(() => {});
     }, 8_000);
     return () => clearInterval(interval);
-  }, [roomId, apiBase, mergeChatHistory]);
+  }, [roomId, apiBase, mergeChatHistory, token]);
 
   // Resize canvas to fill the viewport area
   const {
@@ -1524,6 +1536,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           collapsed={analysisPanelCollapsed}
           onToggleCollapse={() => setAnalysisPanelCollapsed(prev => !prev)}
           width={analysisPanelWidth}
+          roomId={roomId}
         />
       </div>
 

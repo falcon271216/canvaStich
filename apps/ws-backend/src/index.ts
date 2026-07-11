@@ -134,6 +134,48 @@ wss.on("connection", async (ws, request) => {
       /* ── Room join/leave ── */
       if (msg.type === "join_room") {
         const roomId = String(msg.roomId);
+        const rId = Number(roomId);
+        if (isNaN(rId)) return ws.close();
+
+        // Security check: Validate room permission
+        let hasAccess = false;
+        try {
+          const room = await getPrisma().room.findUnique({
+            where: { id: rId },
+            include: {
+              members: {
+                where: { userId }
+              }
+            }
+          });
+
+          if (room) {
+            if (room.adminId === userId) {
+              hasAccess = true;
+            } else if (room.members.length > 0) {
+              hasAccess = true;
+            } else {
+              const projects = await getPrisma().project.findMany({
+                where: {
+                  roomId: rId,
+                  workspace: { ownerId: userId }
+                }
+              });
+              if (projects.length > 0) {
+                hasAccess = true;
+              }
+            }
+          }
+        } catch (err) {
+          console.error("[ws-backend] error checking room access:", err);
+        }
+
+        if (!hasAccess) {
+          console.warn(`[ws-backend] User ${userId} unauthorized to join room ${rId}`);
+          ws.send(JSON.stringify({ type: "error", error: "Unauthorized access to this room" }));
+          return ws.close();
+        }
+
         if (!client.rooms.includes(roomId)) {
           client.rooms.push(roomId);
         }

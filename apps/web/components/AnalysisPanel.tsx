@@ -24,6 +24,7 @@ interface AnalysisPanelProps {
   collapsed?: boolean;
   onToggleCollapse?: () => void;
   width?: number;
+  roomId?: string;
 }
 
 export interface AnalysisPanelHandle {
@@ -51,6 +52,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
     collapsed = false,
     onToggleCollapse,
     width = 320,
+    roomId,
   },
   ref,
 ) {
@@ -150,6 +152,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
             autoGenerate={autoGenerate}
             onGenerationComplete={onGenerationComplete}
             annotations={annotations}
+            roomId={roomId}
           />
         )}
       </div>

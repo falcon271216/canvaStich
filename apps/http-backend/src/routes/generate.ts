@@ -1,5 +1,7 @@
 import { Router, Request, Response } from "express";
 import type { Router as RouterType } from "express";
+import { getPrisma } from "../db";
+import { middleware } from "../middleware";
 
 const router: RouterType = Router();
 
@@ -12,7 +14,7 @@ const router: RouterType = Router();
  * Body: { layoutTree: LayoutNode, framework: 'react' | 'html', componentName: string }
  * Returns: { code: string, framework: string }
  */
-router.post("/generate-code", async (req: Request, res: Response): Promise<void> => {
+router.post("/generate-code", middleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const { layoutTree, framework = "react", componentName = "GeneratedComponent" } = req.body;
 
@@ -106,14 +108,14 @@ function simpleHash(obj: unknown): string {
 /**
  * POST /api/generate-premium-ui
  *
- * AI-powered premium UI generation via Claude API.
+ * AI-powered premium UI generation via Gemini API.
  * Converts a layout tree + design theme into a production-quality
  * styled component (HTML or React).
  *
- * Body: { layoutTree, theme, framework, componentName, canvasWidth?, canvasHeight? }
+ * Body: { layoutTree, theme, framework, componentName, canvasWidth?, canvasHeight?, roomId? }
  * Returns: { code: string, framework: string, theme: string, cached: boolean }
  */
-router.post("/generate-premium-ui", async (req: Request, res: Response): Promise<void> => {
+router.post("/generate-premium-ui", middleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const {
       layoutTree,
@@ -123,6 +125,7 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
       canvasWidth,
       canvasHeight,
       annotations,
+      roomId,
     } = req.body;
 
     // Validate required fields
@@ -150,6 +153,53 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
       return;
     }
 
+    // ── Enforce Free Workspace Limits ──
+    const userId = (req as any).userId;
+    let workspace;
+    if (roomId) {
+      const project = await getPrisma().project.findFirst({
+        where: { roomId: Number(roomId) },
+        include: { workspace: true },
+      });
+      if (project && project.workspace.ownerId === userId) {
+        workspace = project.workspace;
+      }
+    }
+    if (!workspace) {
+      workspace = await getPrisma().workspace.findFirst({
+        where: { ownerId: userId },
+      });
+    }
+
+    if (!workspace) {
+      res.status(404).json({ error: "Workspace not found. Try signing in again." });
+      return;
+    }
+
+    // Check limit if plan is free
+    if (workspace.plan === "free") {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+
+      const count = await getPrisma().usageEvent.count({
+        where: {
+          workspaceId: workspace.id,
+          eventType: "premium_generation",
+          createdAt: { gte: startOfToday },
+        },
+      });
+
+      if (count >= 5) {
+        res.status(403).json({
+          error: "Daily generation limit reached. Free accounts are limited to 5 premium UI generations per day. Please upgrade to continue.",
+          workspaceId: workspace.id,
+          plan: workspace.plan,
+          count,
+        });
+        return;
+      }
+    }
+
     // Sanitize component name
     const safeName = (componentName as string).replace(/[^a-zA-Z0-9]/g, "") || "GeneratedComponent";
 
@@ -157,6 +207,15 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
     const cacheKey = `premium:${simpleHash({ layoutTree, theme, framework })}`;
     const cached = cacheGet(cacheKey);
     if (cached) {
+      // Record cached usage event too
+      await getPrisma().usageEvent.create({
+        data: {
+          workspaceId: workspace.id,
+          eventType: "premium_generation",
+          metadata: { componentName: safeName, theme, framework, cached: true },
+        },
+      });
+
       res.status(200).json({ code: cached, framework, theme, cached: true });
       return;
     }
@@ -247,10 +306,6 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
       return;
     }
 
-    // Check if response was truncated (finish_reason)
-    const finishReason = (data as any).candidates?.[0]?.finishReason;
-    const wasTruncated = finishReason === "MAX_TOKENS" || finishReason === "STOP" && !rawCode.trim().endsWith(">") && !rawCode.trim().endsWith("}") && !rawCode.trim().endsWith(";");
-
     // Clean up any markdown fences
     let code = stripCodeFences(rawCode);
 
@@ -300,6 +355,15 @@ router.post("/generate-premium-ui", async (req: Request, res: Response): Promise
 
     // Cache the result
     cacheSet(cacheKey, code);
+
+    // Record usage event in DB
+    await getPrisma().usageEvent.create({
+      data: {
+        workspaceId: workspace.id,
+        eventType: "premium_generation",
+        metadata: { componentName: safeName, theme, framework, cached: false },
+      },
+    });
 
     res.status(200).json({
       code,

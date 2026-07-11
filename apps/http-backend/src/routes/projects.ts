@@ -353,4 +353,36 @@ router.get("/usage", middleware, async (req: Request, res: Response): Promise<vo
   }
 });
 
+// POST /api/workspaces/:id/upgrade — Upgrade workspace plan (subscription model)
+router.post("/workspaces/:id/upgrade", middleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId as string;
+    const { plan } = req.body;
+
+    if (!["pro", "team", "free"].includes(plan)) {
+      res.status(400).json({ error: "Invalid plan type" });
+      return;
+    }
+
+    const workspace = await getPrisma().workspace.findFirst({
+      where: { id: req.params.id, ownerId: userId },
+    });
+
+    if (!workspace) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+
+    const updated = await getPrisma().workspace.update({
+      where: { id: req.params.id },
+      data: { plan },
+    });
+
+    res.json({ workspace: updated });
+  } catch (err) {
+    console.error("Upgrade workspace error:", err);
+    res.status(500).json({ error: "Failed to upgrade workspace" });
+  }
+});
+
 export default router;

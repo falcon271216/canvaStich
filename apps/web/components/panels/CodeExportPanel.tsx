@@ -64,6 +64,7 @@ interface CodeExportPanelProps {
   autoGenerate?: boolean;
   onGenerationComplete?: () => void;
   annotations?: Map<string, ComponentAnnotation>;
+  roomId?: string;
 }
 
 /* ────────────────────── theme data ────────────────────── */
@@ -109,6 +110,7 @@ export default function CodeExportPanel({
   autoGenerate = false,
   onGenerationComplete,
   annotations,
+  roomId,
 }: CodeExportPanelProps) {
   const [theme, setTheme] = useState<DesignTheme>("modern-saas");
   const [framework, setFramework] = useState<"react" | "html">("html");
@@ -128,6 +130,12 @@ export default function CodeExportPanel({
   /* ── Full preview modal (Layer 6) ── */
   const [showFullPreview, setShowFullPreview] = useState(false);
 
+  /* ── Upgrade modal states ── */
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeWorkspaceId, setUpgradeWorkspaceId] = useState("");
+  const [isUpgrading, setIsUpgrading] = useState(false);
+  const [upgradeSuccess, setUpgradeSuccess] = useState(false);
+
   const apiBase = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
 
   const handleGenerate = useCallback(async () => {
@@ -144,9 +152,13 @@ export default function CodeExportPanel({
     progressTimers.push(setTimeout(() => setProgressStep(3), 1200));
 
     try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const res = await fetch(`${apiBase}/api/generate-premium-ui`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           layoutTree,
           theme,
@@ -155,8 +167,19 @@ export default function CodeExportPanel({
           canvasWidth,
           canvasHeight,
           annotations: annotations ? Object.fromEntries(annotations) : undefined,
+          roomId: roomId ? Number(roomId) : undefined,
         }),
       });
+
+      if (res.status === 403) {
+        const errData = await res.json().catch(() => ({}));
+        if (errData.workspaceId) {
+          setUpgradeWorkspaceId(errData.workspaceId);
+          setShowUpgradeModal(true);
+          setState("idle");
+          return;
+        }
+      }
 
       setProgressStep(4);
 
@@ -188,7 +211,41 @@ export default function CodeExportPanel({
       setProgressStep(0);
       progressTimers.forEach(clearTimeout);
     }
-  }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete, annotations]);
+  }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete, annotations, roomId]);
+
+  const handleUpgrade = async (plan: "pro" | "team") => {
+    if (!upgradeWorkspaceId) return;
+    setIsUpgrading(true);
+    setErrorMsg("");
+
+    try {
+      const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+      const res = await fetch(`${apiBase}/api/workspaces/${upgradeWorkspaceId}/upgrade`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ plan }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({ error: "Upgrade failed" }));
+        throw new Error(errData.error || `HTTP ${res.status}`);
+      }
+
+      setUpgradeSuccess(true);
+      setTimeout(() => {
+        setShowUpgradeModal(false);
+        setUpgradeSuccess(false);
+        setIsUpgrading(false);
+        handleGenerate();
+      }, 1500);
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to upgrade workspace.");
+      setIsUpgrading(false);
+    }
+  };
 
   // Auto-generate on mount when triggered from AutoDraw
   useEffect(() => {
@@ -435,6 +492,92 @@ export default function CodeExportPanel({
           </p>
         </div>
       ) : null}
+
+      {/* ── Subscription Upgrade Modal ── */}
+      {showUpgradeModal && (
+        <div className="project-create-overlay" style={{ backdropFilter: 'blur(12px)', zIndex: 10000 }}>
+          <div className="project-create-modal" style={{ maxWidth: '540px', background: 'rgba(18,18,24,0.98)', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', padding: '2rem', borderRadius: '16px' }}>
+            {upgradeSuccess ? (
+              <div style={{ textAlign: 'center', padding: '2rem 0' }}>
+                <div style={{ fontSize: '3.5rem', marginBottom: '1.25rem', color: '#10b981', animation: 'premium-spin 0.5s ease-out' }}>✓</div>
+                <h3 style={{ fontSize: '1.35rem', fontWeight: 'bold', color: '#fafafa', marginBottom: '0.5rem' }}>Subscription Activated!</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem' }}>Your plan has been upgraded. Re-generating premium UI code...</p>
+              </div>
+            ) : (
+              <div>
+                <h3 style={{ fontSize: '1.4rem', fontWeight: '800', color: '#fafafa', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Daily limit reached</h3>
+                <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: '1.5', marginBottom: '1.75rem' }}>
+                  Free accounts are limited to <strong>5 premium generations</strong> per day. Upgrade to a subscription model to unlock unlimited AI generations.
+                </p>
+
+                {errorMsg && (
+                  <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: '8px', color: '#fca5a5', padding: '0.75rem', fontSize: '0.8rem', marginBottom: '1rem' }}>
+                    {errorMsg}
+                  </div>
+                )}
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '2rem' }}>
+                  {/* Pro Plan */}
+                  <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '1.25rem', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <div>
+                      <h4 style={{ fontWeight: '700', fontSize: '1rem', color: '#fafafa', marginBottom: '0.25rem' }}>Pro Plan</h4>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--accent-hover)', marginBottom: '0.75rem' }}>
+                        $99<span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-dim)' }}>/month</span>
+                      </div>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1rem', fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <li>✓ Unlimited AI UI generation</li>
+                        <li>✓ Up to 50 active projects</li>
+                        <li>✓ Up to 5 collaborators</li>
+                      </ul>
+                    </div>
+                    <button
+                      disabled={isUpgrading}
+                      onClick={() => handleUpgrade("pro")}
+                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', background: 'var(--accent)', color: 'white', border: 'none', fontWeight: '600', fontSize: '0.8rem', cursor: 'pointer', transition: 'opacity 0.15s' }}
+                    >
+                      {isUpgrading ? "Upgrading..." : "Select Pro"}
+                    </button>
+                  </div>
+
+                  {/* Team Plan */}
+                  <div style={{ border: '1px solid var(--accent)', borderRadius: '12px', padding: '1.25rem', background: 'rgba(99,102,241,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative' }}>
+                    <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: 'var(--accent)', color: 'white', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '20px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Best Value</div>
+                    <div>
+                      <h4 style={{ fontWeight: '700', fontSize: '1rem', color: '#fafafa', marginBottom: '0.25rem' }}>Team Plan</h4>
+                      <div style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--accent-hover)', marginBottom: '0.75rem' }}>
+                        $299<span style={{ fontSize: '0.75rem', fontWeight: 'normal', color: 'var(--text-dim)' }}>/month</span>
+                      </div>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 1rem', fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                        <li>✓ Everything in Pro</li>
+                        <li>✓ Unlimited active projects</li>
+                        <li>✓ Unlimited collaborators</li>
+                        <li>✓ Priority generation speed</li>
+                      </ul>
+                    </div>
+                    <button
+                      disabled={isUpgrading}
+                      onClick={() => handleUpgrade("team")}
+                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', background: 'linear-gradient(135deg, #a855f7, #6366f1)', color: 'white', border: 'none', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer', transition: 'opacity 0.15s' }}
+                    >
+                      {isUpgrading ? "Upgrading..." : "Select Team"}
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    disabled={isUpgrading}
+                    onClick={() => setShowUpgradeModal(false)}
+                    style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', fontSize: '0.8rem', cursor: 'pointer', padding: '0.5rem 1rem' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
