@@ -57,6 +57,8 @@ export function useDrawingSocket({
   onIdentityAction?: (data: { userId: string; userName: string }) => void;
 }) {
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout>();
+  const retryCountRef = useRef(0);
   const callbacksRef = useRef({
     onDrawEventAction,
     onCursorMoveAction,
@@ -76,7 +78,7 @@ export function useDrawingSocket({
     onIdentityAction,
   };
 
-  useEffect(() => {
+  const connect = useCallback(() => {
     if (!token || !roomId) return;
 
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:4003";
@@ -84,6 +86,7 @@ export function useDrawingSocket({
     wsRef.current = ws;
 
     ws.onopen = () => {
+      retryCountRef.current = 0;
       ws.send(JSON.stringify({ type: "join_room", roomId: String(roomId) }));
     };
 
@@ -116,13 +119,33 @@ export function useDrawingSocket({
       }
     };
 
-    return () => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "leave_room", roomId: String(roomId) }));
-      }
+    ws.onclose = () => {
+      const timeout = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+      reconnectTimeoutRef.current = setTimeout(() => {
+        retryCountRef.current++;
+        connect();
+      }, timeout);
+    };
+
+    ws.onerror = () => {
       ws.close();
     };
   }, [token, roomId]);
+
+  useEffect(() => {
+    connect();
+
+    return () => {
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) {
+        if (wsRef.current.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({ type: "leave_room", roomId: String(roomId) }));
+        }
+        wsRef.current.onclose = null;
+        wsRef.current.close();
+      }
+    };
+  }, [connect, roomId]);
 
   const sendDrawEvent = useCallback((type: string, data: any) => {
     const socket = wsRef.current;

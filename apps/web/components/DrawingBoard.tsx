@@ -310,61 +310,70 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       .catch(() => {});
   }, [roomId, apiBase]);
 
-  /* ── Load chat history (merge so live messages are not wiped) ── */
+  /* ── Merge fetched chat history into state (deduplicated) ── */
+  const mergeChatHistory = useCallback(
+    (history: Array<{ id?: number; userId: string; userName: string; content: string; createdAt: string }>) => {
+      if (history.length === 0) return;
+      setChatMessages((prev) => {
+        const byId = new Map<number, ChatMessage>();
+        const pending: ChatMessage[] = [];
+
+        for (const m of prev) {
+          if (m.id != null) byId.set(m.id, m);
+          else pending.push(m);
+        }
+        for (const m of history) {
+          if (m.id == null) continue;
+          if (!byId.has(m.id)) {
+            byId.set(m.id, {
+              key: `msg-${m.id}`,
+              id: m.id,
+              userId: m.userId,
+              userName: m.userName,
+              content: m.content,
+              createdAt: m.createdAt,
+            });
+          }
+        }
+
+        const merged = Array.from(byId.values()).sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+
+        // Keep optimistic messages that history has not confirmed yet
+        for (const p of pending) {
+          const confirmed = merged.some(
+            (m) =>
+              m.content === p.content &&
+              (!p.userId || !m.userId || m.userId === p.userId),
+          );
+          if (!confirmed) merged.push(p);
+        }
+
+        return merged;
+      });
+    },
+    [],
+  );
+
+  /* ── Load chat history on mount ── */
   useEffect(() => {
     fetch(`${apiBase}/messages/${roomId}`)
       .then((res) => res.json())
-      .then((data) => {
-        const history = (data.messages ?? []) as Array<{
-          id?: number;
-          userId: string;
-          userName: string;
-          content: string;
-          createdAt: string;
-        }>;
-        if (history.length === 0) return;
-
-        setChatMessages((prev) => {
-          const byId = new Map<number, ChatMessage>();
-          const pending: ChatMessage[] = [];
-
-          for (const m of prev) {
-            if (m.id != null) byId.set(m.id, m);
-            else pending.push(m);
-          }
-          for (const m of history) {
-            if (m.id == null) continue;
-            if (!byId.has(m.id)) {
-              byId.set(m.id, {
-                key: `msg-${m.id}`,
-                id: m.id,
-                userId: m.userId,
-                userName: m.userName,
-                content: m.content,
-                createdAt: m.createdAt,
-              });
-            }
-          }
-
-          const merged = Array.from(byId.values()).sort(
-            (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-          );
-
-          // Keep optimistic messages that history has not confirmed yet
-          for (const p of pending) {
-            const confirmed = merged.some(
-              (m) =>
-                m.content === p.content &&
-                (!p.userId || !m.userId || m.userId === p.userId),
-            );
-            if (!confirmed) merged.push(p);
-          }
-
-          return merged;
-        });
-      })
+      .then((data) => mergeChatHistory(data.messages ?? []))
       .catch(() => {});
-  }, [roomId, apiBase]);
+  }, [roomId, apiBase, mergeChatHistory]);
+
+  /* ── Poll chat history every 8s as a fallback for missed WS messages ── */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetch(`${apiBase}/messages/${roomId}`)
+        .then((res) => res.json())
+        .then((data) => mergeChatHistory(data.messages ?? []))
+        .catch(() => {});
+    }, 8_000);
+    return () => clearInterval(interval);
+  }, [roomId, apiBase, mergeChatHistory]);
 
   // Resize canvas to fill the viewport area
   const {
