@@ -139,7 +139,7 @@ export const UI_COMPONENT_HINTS: Record<UIComponentType, ComponentHint> = {
     typicalAspectRatio: [1.5, 5],
     typicalStrokeCount: [1, 2],
     closureLikelihood: 'high',
-    typicalSize: 'small',
+    typicalSize: 'medium',
   },
   input_field: {
     typicalAspectRatio: [3, 12],
@@ -187,7 +187,7 @@ export const UI_COMPONENT_HINTS: Record<UIComponentType, ComponentHint> = {
     typicalAspectRatio: [2, 20],
     typicalStrokeCount: [1, 1],
     closureLikelihood: 'low',
-    typicalSize: 'small',
+    typicalSize: 'medium',
   },
   image_placeholder: {
     typicalAspectRatio: [0.5, 2],
@@ -205,13 +205,13 @@ export const UI_COMPONENT_HINTS: Record<UIComponentType, ComponentHint> = {
     typicalAspectRatio: [8, 100],
     typicalStrokeCount: [1, 1],
     closureLikelihood: 'low',
-    typicalSize: 'small',
+    typicalSize: 'medium',
   },
   arrow_connector: {
     typicalAspectRatio: [0.3, 10],
     typicalStrokeCount: [1, 3],
     closureLikelihood: 'low',
-    typicalSize: 'small',
+    typicalSize: 'medium',
   },
   container_box: {
     typicalAspectRatio: [0.3, 3],

@@ -69,27 +69,26 @@ function getUITemplates(): UITemplate[] {
 
 /* ────────────────────── heuristic classifier ────────────────────── */
 
-function scoreHeuristic(features: StrokeFeatureVector): Map<UIComponentType, number> {
+/* ────────────────────── heuristic classifier ────────────────────── */
+
+function scoreHeuristic(features: StrokeFeatureVector, bbox: BoundingBox): Map<UIComponentType, number> {
   const scores = new Map<UIComponentType, number>();
+  const maxDim = Math.max(bbox.width, bbox.height);
 
   for (const label of UI_COMPONENT_LABELS) {
     const hints = UI_COMPONENT_HINTS[label];
     let score = 0;
-    let checks = 0;
 
-    // 1. Aspect ratio match
+    // 1. Aspect ratio match (with ratio-based deviation penalty)
     const [arMin, arMax] = hints.typicalAspectRatio;
     if (features.aspectRatio >= arMin && features.aspectRatio <= arMax) {
-      score += 0.3;
+      score += 0.4;
     } else {
-      // Partial credit for close matches
-      const dist = Math.min(
-        Math.abs(features.aspectRatio - arMin),
-        Math.abs(features.aspectRatio - arMax),
-      );
-      score += Math.max(0, 0.3 - dist * 0.05);
+      const devRatio = features.aspectRatio > arMax
+        ? features.aspectRatio / arMax
+        : arMin / features.aspectRatio;
+      score += Math.max(0, 0.4 - (devRatio - 1.0) * 0.4);
     }
-    checks++;
 
     // 2. Stroke count match
     const [scMin, scMax] = hints.typicalStrokeCount;
@@ -98,7 +97,6 @@ function scoreHeuristic(features: StrokeFeatureVector): Map<UIComponentType, num
     } else if (features.strokeCount <= scMax + 1) {
       score += 0.1;
     }
-    checks++;
 
     // 3. Closure match
     if (hints.closureLikelihood === 'high' && features.closureScore > 0.6) {
@@ -110,21 +108,60 @@ function scoreHeuristic(features: StrokeFeatureVector): Map<UIComponentType, num
     } else {
       score += 0.05;
     }
-    checks++;
 
-    // 4. Size match
-    if (hints.typicalSize === 'small' && features.normalizedArea < 0.03) {
-      score += 0.15;
-    } else if (hints.typicalSize === 'medium' && features.normalizedArea >= 0.02 && features.normalizedArea <= 0.15) {
-      score += 0.15;
-    } else if (hints.typicalSize === 'large' && features.normalizedArea > 0.08) {
-      score += 0.15;
+    // 4. Size match (using absolute max dimension in world coordinates)
+    const isSmall = maxDim < 60;
+    const isMedium = maxDim >= 60 && maxDim <= 240;
+    const isLarge = maxDim > 240;
+
+    let sizeScore = 0;
+    if (hints.typicalSize === 'small' && isSmall) {
+      sizeScore = 0.2;
+    } else if (hints.typicalSize === 'medium' && isMedium) {
+      sizeScore = 0.2;
+    } else if (hints.typicalSize === 'large' && isLarge) {
+      sizeScore = 0.2;
     } else {
-      score += 0.03;
+      // Partial credit for adjacent sizes
+      if (hints.typicalSize === 'medium' && (isSmall || isLarge)) {
+        sizeScore = 0.08;
+      } else if (hints.typicalSize === 'small' && isMedium) {
+        sizeScore = 0.05;
+      } else if (hints.typicalSize === 'large' && isMedium) {
+        sizeScore = 0.05;
+      }
     }
-    checks++;
+    score += sizeScore;
 
-    // 5. Direction changes — tables have many, dividers have few
+    // 5. Shape Style / Circularity check
+    const isCircularComponent = (label === 'radio' || label === 'avatar');
+    const isRectangularComponent = (
+      label === 'checkbox' ||
+      label === 'button' ||
+      label === 'input_field' ||
+      label === 'dropdown' ||
+      label === 'card' ||
+      label === 'navbar' ||
+      label === 'modal' ||
+      label === 'container_box' ||
+      label === 'image_placeholder'
+    );
+
+    if (isCircularComponent) {
+      if (features.rectangularity >= 0.62 && features.rectangularity <= 0.85) {
+        score += 0.15;
+      } else if (features.rectangularity > 0.88) {
+        score -= 0.3; // heavy penalty for rectangles
+      }
+    } else if (isRectangularComponent) {
+      if (features.rectangularity >= 0.82) {
+        score += 0.15;
+      } else if (features.rectangularity < 0.78) {
+        score -= 0.3; // heavy penalty for circles
+      }
+    }
+
+    // 6. Direction changes (specific components)
     if (label === 'table' && features.directionChanges > 6) {
       score += 0.15;
     } else if (label === 'divider' && features.directionChanges < 3) {
@@ -133,7 +170,8 @@ function scoreHeuristic(features: StrokeFeatureVector): Map<UIComponentType, num
       score += 0.1;
     }
 
-    scores.set(label, score);
+    // Normalize score to [0, 1] (max possible points is 1.15)
+    scores.set(label, Math.max(0, score / 1.15));
   }
 
   return scores;
@@ -174,11 +212,6 @@ function scoreDTW(normalizedStroke: Point[]): Map<UIComponentType, number> {
 /**
  * Geometric heuristics override — runs as a fallback when the
  * DTW+heuristic ensemble confidence is low (< 0.6).
- *
- * Uses bounding box geometry (aspect ratio, area, closure) to
- * produce a reliable classification for rough hand-drawn shapes.
- * This fixes the "everything is connector" bug that occurs when
- * the CNN/DTW pipeline doesn't have strong signal.
  */
 function geometricOverrideClassifier(
   bboxResult: BoundingBox,
@@ -191,16 +224,20 @@ function geometricOverrideClassifier(
   const closureScore = features.closureScore;
   const pointCount = allPoints.length;
 
-  // Closed rectangle shapes (closureScore high = shape is closed)
+  // Closed shapes (closureScore high = shape is closed)
   if (closureScore > 0.5) {
     // Very wide, thin → navbar
     if (aspectRatio > 3.0 && height < 80 && width > 200) {
       return { type: 'navbar', confidence: 0.75 };
     }
 
-    // Wide rectangle → input field
-    if (aspectRatio > 2.5 && area < 15000) {
-      return { type: 'input_field', confidence: 0.7 };
+    // Wide rectangle → input field (if wide) or button (if narrower)
+    if (aspectRatio > 2.0 && area < 18000) {
+      if (width >= 180) {
+        return { type: 'input_field', confidence: 0.72 };
+      } else {
+        return { type: 'button', confidence: 0.72 };
+      }
     }
 
     // Medium-wide, small → button
@@ -218,9 +255,18 @@ function geometricOverrideClassifier(
       return { type: 'container_box', confidence: 0.65 };
     }
 
-    // Square-ish small → checkbox
-    if (aspectRatio > 0.7 && aspectRatio < 1.3 && area < 3000) {
-      return { type: 'checkbox', confidence: 0.6 };
+    // Square-ish / circular small → checkbox or radio
+    if (aspectRatio > 0.7 && aspectRatio < 1.3 && Math.max(width, height) < 60) {
+      if (features.rectangularity < 0.83) {
+        return { type: 'radio', confidence: 0.75 };
+      } else {
+        return { type: 'checkbox', confidence: 0.75 };
+      }
+    }
+
+    // Square-ish circular medium → avatar
+    if (aspectRatio > 0.7 && aspectRatio < 1.3 && Math.max(width, height) >= 60 && Math.max(width, height) < 140 && features.rectangularity < 0.83) {
+      return { type: 'avatar', confidence: 0.72 };
     }
   }
 
@@ -301,7 +347,7 @@ export function classifyUIComponent(
   const features = extractUIFeatures(strokes, canvasArea);
 
   // Run heuristic classifier
-  const heuristicScores = scoreHeuristic(features);
+  const heuristicScores = scoreHeuristic(features, bboxResult);
 
   // Run DTW classifier on normalised flattened stroke
   const normalized = normalizePath(allPoints, TMPL_POINTS, TMPL_SIZE);

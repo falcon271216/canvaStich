@@ -3463,6 +3463,7 @@ input:focus {
   font-weight: 500;
 }
 
+
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE – TABLET (≤ 1024px)
    ═══════════════════════════════════════════════════════════ */
@@ -3516,6 +3517,694 @@ input:focus {
     font-size: 1rem;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE – MOBILE (≤ 768px)
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+  /* ── Nav ── */
+  .nav {
+    height: 48px;
+    padding: 0 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .nav-brand span {
+    display: none;
+  }
+
+  .nav a {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  .nav-actions .badge {
+    font-size: 0.6rem;
+    padding: 0.15rem 0.35rem;
+  }
+
+  /* Compress "Get Started" button text on mobile nav */
+  .nav-actions button.primary {
+    font-size: 0.78rem;
+    padding: 0.4rem 0.75rem;
+  }
+
+  /* ── Draw page ── */
+  .draw-page {
+    height: 100dvh; /* use dynamic viewport height for better mobile */
+  }
+
+  /* ── Hide palette sidebar on mobile ── */
+  .palette-sidebar,
+  .palette-collapsed {
+    display: none !important;
+  }
+
+  .panel-resize-handle {
+    display: none !important;
+  }
+
+  /* ── Analysis panel → bottom sheet ── */
+  .analysis-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    flex: none !important;
+    max-height: 45vh;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    z-index: 50;
+    overflow-y: auto;
+  }
+
+  .analysis-collapsed {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: none !important;
+    height: 44px;
+    flex-direction: row !important;
+    justify-content: center;
+    gap: 10px;
+    border-left: none !important;
+    border-top: 1px solid var(--border) !important;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    z-index: 50;
+    padding: 0 12px !important;
+  }
+
+  .analysis-collapsed-icon {
+    flex-direction: row !important;
+    gap: 10px !important;
+  }
+
+  .analysis-collapsed-label {
+    writing-mode: horizontal-tb !important;
+    text-orientation: mixed;
+  }
+
+  .analysis-panel.empty {
+    max-height: 120px;
+    padding: 1rem;
+  }
+
+  .analysis-header {
+    padding: 0.75rem 1rem;
+    font-size: 0.82rem;
+  }
+
+  .analysis-content {
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+
+  /* ── Draw board ── */
+  .draw-board {
+    padding: 0;
+  }
+
+  /* ── Floating toolbar ── */
+  .draw-tools {
+    top: 0.5rem;
+    padding: 3px;
+    overflow-x: auto;
+    max-width: calc(100vw - 1rem);
+    -webkit-overflow-scrolling: touch;
+    /* prevent toolbar from pushing off-screen */
+    left: 50%;
+    transform: translateX(-50%);
+    scrollbar-width: none;
+  }
+  .draw-tools::-webkit-scrollbar { display: none; }
+
+  .draw-tools button {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    font-size: 0.9rem;
+  }
+
+  /* ── Props bar (color + stroke) ── */
+  .draw-props-bar {
+    top: auto;
+    bottom: calc(44px + 0.5rem); /* above analysis bottom sheet */
+    left: 50%;
+    transform: translateX(-50%);
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: calc(100vw - 2rem);
+    width: max-content;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  /* ── Viewport controls ── */
+  .viewport-controls {
+    bottom: calc(44px + 0.5rem);
+    left: 0.5rem;
+  }
+
+  /* ── Canvas ── */
+  .draw-canvas {
+    border-radius: var(--radius-md);
+  }
+
+  /* ── Status bar ── */
+  .draw-status {
+    font-size: 0.65rem;
+    padding: 0.35rem 0.5rem;
+    gap: 0.4rem;
+  }
+
+  .draw-status-end .draw-status-item:last-child {
+    display: none;
+  }
+
+  /* ── Live detection badge ── */
+  .draw-live-detection {
+    bottom: calc(44px + 3.5rem);
+    font-size: 0.72rem;
+    padding: 0.35rem 0.75rem;
+  }
+
+  /* ── Draw hint ── */
+  .draw-hint {
+    display: none;
+  }
+
+  /* ── Chat panel ── */
+  .chat-panel {
+    width: calc(100vw - 1.5rem);
+    max-width: 360px;
+    right: 0.75rem;
+    bottom: calc(44px + 0.75rem);
+    max-height: 45vh;
+  }
+
+  .chat-toggle-btn {
+    bottom: calc(44px + 0.75rem);
+    right: 0.75rem;
+    width: 40px;
+    height: 40px;
+  }
+
+  /* ── AutoDraw button ── */
+  .autodraw-magic-btn {
+    width: 30px;
+    height: 30px;
+    font-size: 0.95rem;
+  }
+
+  /* ── Auth modal ── */
+  .auth-wrapper {
+    padding: 1rem;
+    align-items: flex-end;
+  }
+
+  .auth-card {
+    width: 100%;
+    max-width: 100%;
+    padding: 1.5rem;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  }
+
+  /* Landing auth overlay modal: full-width bottom sheet on mobile */
+  .landing-auth-overlay {
+    align-items: flex-end;
+  }
+
+  .landing-auth-overlay .auth-card {
+    max-width: 100%;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+
+  /* ── Landing page ── */
+  .landing-hero {
+    padding: 3.5rem 1rem 2.5rem;
+  }
+
+  .landing-title {
+    font-size: 2rem;
+  }
+
+  .landing-subtitle {
+    font-size: 0.95rem;
+  }
+
+  .landing-cta-btn {
+    padding: 0.7rem 1.4rem;
+    font-size: 0.9rem;
+  }
+
+  .landing-steps {
+    padding: 2.5rem 1rem;
+  }
+
+  .landing-steps-grid {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+    gap: 1.25rem;
+  }
+
+  .landing-features {
+    padding: 2.5rem 1rem;
+  }
+
+  .landing-features-grid {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+  }
+
+  .landing-pricing {
+    padding: 2.5rem 1rem;
+  }
+
+  .landing-pricing-grid {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+    gap: 1rem;
+  }
+
+  .landing-price-card.featured {
+    transform: none;
+  }
+
+  .landing-section-title {
+    font-size: 1.4rem;
+  }
+
+  .landing-footer {
+    padding: 1.5rem 1rem;
+  }
+
+  .landing-footer-inner {
+    flex-direction: column;
+    gap: 0.5rem;
+    text-align: center;
+  }
+
+  /* ── Auth pages (standalone) ── */
+  .container {
+    padding: 2rem 1rem;
+  }
+
+  /* ── Landing homepage nav buttons ── */
+  .landing-badge {
+    font-size: 0.72rem;
+    padding: 0.25rem 0.7rem;
+  }
+
+  /* ── Rooms page ── */
+  .room-card {
+    padding: 1rem;
+  }
+
+  .room-card h2 {
+    font-size: 0.95rem;
+  }
+
+  /* ── Projects page ── */
+  .projects-page {
+    padding: 1.5rem 1rem;
+  }
+
+  .projects-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .projects-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.75rem;
+  }
+
+  /* Project create modal */
+  .project-create-modal {
+    max-width: calc(100vw - 2rem);
+    margin: 1rem;
+  }
+
+  /* ── Annotation editor ── */
+  .annotation-editor {
+    width: calc(100vw - 2rem) !important;
+    max-width: 320px;
+  }
+
+  /* ── Transform overlay context menu ── */
+  .transform-context-menu {
+    transform: scale(0.9);
+    transform-origin: top left;
+  }
+
+  /* ── AutoDraw progress overlay ── */
+  .autodraw-progress-card {
+    width: calc(100vw - 2rem);
+    max-width: 360px;
+    padding: 24px 20px;
+  }
+
+  /* ── Detection panel tab bar ── */
+  .analysis-tabs {
+    gap: 0;
+  }
+
+  .analysis-tab {
+    font-size: 0.72rem;
+    padding: 0.5rem 0.6rem;
+  }
+
+  /* ── Full preview topbar – stack or scroll ── */
+  .fullpreview-topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+
+  .fullpreview-topbar-left {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .fullpreview-actions {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .fullpreview-action-btn {
+    font-size: 0.65rem;
+    padding: 4px 8px;
+  }
+
+  .fullpreview-viewport-switcher {
+    flex-wrap: wrap;
+  }
+
+  .fullpreview-title {
+    display: none;
+  }
+
+  .fullpreview-divider {
+    display: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   RESPONSIVE – SMALL MOBILE (≤ 480px)
+   ═══════════════════════════════════════════════════════════ */
+
+@media (max-width: 480px) {
+  .nav {
+    height: 44px;
+    padding: 0 0.5rem;
+  }
+
+  .draw-page {
+    height: 100dvh;
+  }
+
+  /* Toolbar more compact */
+  .draw-tools {
+    top: 0.25rem;
+    gap: 1px;
+    padding: 2px;
+  }
+
+  .draw-tools button {
+    width: 32px;
+    height: 32px;
+    font-size: 0.8rem;
+  }
+
+  .tool-separator {
+    height: 22px !important;
+    margin: 0 2px !important;
+  }
+
+  /* Props bar wraps into two rows */
+  .draw-props-bar {
+    gap: 4px;
+    padding: 5px 8px;
+  }
+
+  .color-swatch {
+    width: 17px;
+    height: 17px;
+  }
+
+  /* Analysis panel bottom sheet – even more compact */
+  .analysis-panel {
+    max-height: 40vh;
+  }
+
+  .analysis-header {
+    padding: 0.6rem 0.75rem;
+    font-size: 0.78rem;
+  }
+
+  .analysis-content {
+    padding: 0.75rem;
+    gap: 0.6rem;
+  }
+
+  .analysis-card {
+    padding: 0.65rem;
+  }
+
+  /* Status bar single line */
+  .draw-status {
+    font-size: 0.6rem;
+    padding: 0.25rem 0.4rem;
+  }
+
+  .draw-status-start .draw-status-item:last-child,
+  .draw-status-end {
+    display: none;
+  }
+
+  .draw-status {
+    grid-template-columns: 1fr auto 1fr;
+  }
+
+  /* Chat fills screen width */
+  .chat-panel {
+    width: calc(100vw - 1rem);
+    max-width: none;
+    right: 0.5rem;
+    bottom: calc(44px + 0.5rem);
+    max-height: 55vh;
+  }
+
+  .chat-messages {
+    min-height: 120px;
+    max-height: calc(55vh - 120px);
+  }
+
+  .chat-toggle-btn {
+    bottom: calc(44px + 0.5rem);
+    right: 0.5rem;
+  }
+
+  /* Landing hero very compact */
+  .landing-hero {
+    padding: 2.5rem 0.75rem 2rem;
+  }
+
+  .landing-title {
+    font-size: 1.65rem;
+    letter-spacing: -0.03em;
+  }
+
+  .landing-subtitle {
+    font-size: 0.88rem;
+    line-height: 1.6;
+  }
+
+  .landing-cta-btn {
+    padding: 0.65rem 1.1rem;
+    font-size: 0.85rem;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .landing-badge {
+    font-size: 0.68rem;
+  }
+
+  .landing-section-title {
+    font-size: 1.25rem;
+  }
+
+  .landing-section-sub {
+    font-size: 0.85rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .landing-step-card {
+    padding: 1.5rem 1rem;
+  }
+
+  .landing-feature-card {
+    padding: 1rem;
+  }
+
+  .landing-price-card {
+    padding: 1.5rem 1rem;
+  }
+
+  /* Auth wrapper fills screen from bottom */
+  .auth-wrapper {
+    padding: 0;
+    align-items: flex-end;
+  }
+
+  .auth-card {
+    padding: 1.25rem;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+
+  /* ── Container / rooms ── */
+  .container {
+    padding: 1.5rem 0.75rem;
+  }
+
+  .room-card {
+    padding: 1rem;
+  }
+
+  .room-card h2 {
+    font-size: 0.9rem;
+  }
+
+  /* ── Projects ── */
+  .projects-page {
+    padding: 1rem 0.75rem;
+  }
+
+  .projects-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+
+  .project-card-body {
+    padding: 0.65rem 0.75rem;
+  }
+
+  .project-card-title {
+    font-size: 0.8rem;
+  }
+
+  /* ── Canvas ── */
+  .draw-canvas {
+    border-radius: var(--radius-sm);
+  }
+
+  /* ── Live detection badge ── */
+  .draw-live-detection {
+    font-size: 0.65rem;
+    padding: 0.3rem 0.6rem;
+    gap: 0.35rem;
+  }
+
+  /* ── Autodraw card ── */
+  .autodraw-progress-card {
+    padding: 20px 16px;
+  }
+
+  /* ── Viewport controls ── */
+  .viewport-controls {
+    bottom: calc(44px + 0.25rem);
+    left: 0.3rem;
+  }
+
+  /* ── Full preview ── */
+  .fullpreview-viewport-switcher {
+    display: none;
+  }
+
+  .fullpreview-content {
+    padding: 8px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   TOUCH DEVICE OPTIMIZATIONS
+   ═══════════════════════════════════════════════════════════ */
+
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets for tools */
+  .draw-tools button {
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  /* Prevent double-tap zoom on canvas */
+  .draw-canvas {
+    touch-action: none;
+  }
+
+  /* Larger chat toggle */
+  .chat-toggle-btn {
+    width: 48px;
+    height: 48px;
+    /* On touch devices the analysis panel is a bottom sheet; add extra clearance */
+    bottom: calc(44px + 1rem);
+  }
+
+  /* Disable hover effects that don't work on touch */
+  .room-card:hover {
+    transform: none;
+  }
+
+  .palette-item:hover {
+    transform: none;
+    border-color: var(--border);
+  }
+
+  .landing-step-card:hover {
+    transform: none;
+    box-shadow: none;
+    border-color: var(--border);
+  }
+
+  .landing-price-card:hover {
+    transform: none;
+  }
+
+  /* Bigger tap targets for palette items on touch */
+  .palette-item {
+    padding: 12px 4px 8px;
+  }
+
+  /* Tap target enlargement for tree toggle buttons */
+  .tree-toggle {
+    width: 28px;
+    height: 28px;
+  }
+
+  /* Always show delete button on touch (no hover) */
+  .project-card-delete {
+    opacity: 1;
+  }
+
+  /* Tab hits easier on touch */
+  .panel-tab {
+    padding: 0.85rem 0.35rem;
+  }
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE – MOBILE (≤ 768px)

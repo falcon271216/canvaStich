@@ -1,10 +1,19 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Excalidraw – Real-time Drawing with Pattern Detection",
-  description: "Collaborative whiteboard with DTW-based shape recognition and time-series analysis",
+  title: "SketchUI – Sketch to Code, Real-time Collaborative",
+  description: "Draw rough wireframes and get production React/HTML code instantly. AI-powered sketch recognition with real-time collaboration.",
 };
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#09090b",
+};
+
 
 export default function RootLayout({
   children,
