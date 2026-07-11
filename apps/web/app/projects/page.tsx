@@ -12,6 +12,7 @@ import {
   Clock,
   Sparkles,
   Loader2,
+  User,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
@@ -251,6 +252,10 @@ export default function ProjectsPage() {
           <a href="/rooms" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
             <FolderOpen size={14} />
             Rooms
+          </a>
+          <a href="/profile" style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}>
+            <User size={14} />
+            Profile
           </a>
           <button
             type="button"

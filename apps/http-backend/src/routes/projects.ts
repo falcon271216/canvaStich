@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import type { Router as RouterType } from "express";
+import bcrypt from "bcryptjs";
 import { getPrisma } from "../db";
 import { middleware } from "../middleware";
 import {
@@ -9,6 +10,65 @@ import {
 } from "@repo/common/types";
 
 const router: RouterType = Router();
+
+/* ────────────────────── User Profile routes ────────────────────── */
+
+// GET /api/me — Get user profile info
+router.get("/me", middleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId as string;
+    const user = await getPrisma().user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, photo: true, createdAt: true },
+    });
+
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    const workspace = await getPrisma().workspace.findFirst({
+      where: { ownerId: userId },
+    });
+
+    res.json({
+      user: {
+        ...user,
+        plan: workspace?.plan || "free",
+        workspaceId: workspace?.id,
+      },
+    });
+  } catch (err) {
+    console.error("Get profile error:", err);
+    res.status(500).json({ error: "Failed to get profile" });
+  }
+});
+
+// PATCH /api/me — Update user profile details
+router.patch("/me", middleware, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).userId as string;
+    const { name, photo, password } = req.body;
+
+    const data: any = {};
+    if (name !== undefined) data.name = name;
+    if (photo !== undefined) data.photo = photo;
+    if (password) {
+      data.password = await bcrypt.hash(password, 10);
+    }
+
+    const updated = await getPrisma().user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, email: true, name: true, photo: true },
+    });
+
+    res.json({ user: updated });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+});
 
 /* ────────────────────── Plan limits ────────────────────── */
 

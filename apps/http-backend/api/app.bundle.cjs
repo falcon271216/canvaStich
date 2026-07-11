@@ -53049,6 +53049,53 @@ var generate_default = router;
 // src/routes/projects.ts
 var import_express2 = __toESM(require_express2());
 var router2 = (0, import_express2.Router)();
+router2.get("/me", middleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const user = await getPrisma().user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, name: true, photo: true, createdAt: true }
+    });
+    if (!user) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    const workspace = await getPrisma().workspace.findFirst({
+      where: { ownerId: userId }
+    });
+    res.json({
+      user: {
+        ...user,
+        plan: workspace?.plan || "free",
+        workspaceId: workspace?.id
+      }
+    });
+  } catch (err) {
+    console.error("Get profile error:", err);
+    res.status(500).json({ error: "Failed to get profile" });
+  }
+});
+router2.patch("/me", middleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { name, photo, password } = req.body;
+    const data = {};
+    if (name !== void 0) data.name = name;
+    if (photo !== void 0) data.photo = photo;
+    if (password) {
+      data.password = await bcryptjs_default.hash(password, 10);
+    }
+    const updated = await getPrisma().user.update({
+      where: { id: userId },
+      data,
+      select: { id: true, email: true, name: true, photo: true }
+    });
+    res.json({ user: updated });
+  } catch (err) {
+    console.error("Update profile error:", err);
+    res.status(500).json({ error: "Failed to update profile" });
+  }
+});
 var PLAN_LIMITS = {
   free: { projects: 3, codeExports: 10, collaborators: 1 },
   pro: { projects: 50, codeExports: 500, collaborators: 5 },

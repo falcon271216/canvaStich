@@ -9,7 +9,7 @@ import {
   type ShapeType,
 } from "../hooks/useCanvasManager";
 import DrawingToolSelector, { ToolType } from "./DrawingToolSelector";
-import { Cpu, Zap, ArrowLeft, BarChart3, Radio, Users } from "lucide-react";
+import { Cpu, Zap, ArrowLeft, BarChart3, Radio, Users, User } from "lucide-react";
 import AnalysisPanel, { type AnalysisPanelHandle } from "./AnalysisPanel";
 import ChatPanel, { type ChatMessage } from "./ChatPanel";
 import LiveCursors, { type CursorData } from "./LiveCursors";
@@ -1317,6 +1317,13 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           >
             <BarChart3 size={14} />
             Dashboard
+          </a>
+          <a
+            href="/profile"
+            style={{ display: "flex", alignItems: "center", gap: "0.35rem" }}
+          >
+            <User size={14} />
+            Profile
           </a>
         </div>
       </nav>
