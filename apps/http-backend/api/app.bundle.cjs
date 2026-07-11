@@ -52748,12 +52748,12 @@ var NEVER = INVALID;
 
 // ../../packages/common/dist/index.js
 var createUserSchema = external_exports.object({
-  username: external_exports.string().min(3, "username must be at least 3 characters").max(20, "username must not exceed 20 characters").trim(),
+  username: external_exports.string().min(3, "username must be at least 3 characters").max(255, "username must not exceed 255 characters").trim(),
   password: external_exports.string().min(6, "Password must be atleast 6 characters log"),
   name: external_exports.string().min(1, "Name can't be empty").max(50).trim()
 });
 var signinSchema = external_exports.object({
-  username: external_exports.string().min(3, "Username must be at least 3 characters").max(20, "Username must not exceed 20 characters").trim(),
+  username: external_exports.string().min(3, "Username must be at least 3 characters").max(255, "Username must not exceed 255 characters").trim(),
   password: external_exports.string().min(6, "Password must be at least 6 characters long")
 });
 var CreateRoomSchema = external_exports.object({
