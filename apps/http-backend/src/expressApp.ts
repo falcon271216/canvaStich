@@ -91,6 +91,7 @@ export function createApp(): Express {
     }
 
     const { username, password, name } = parsed.data;
+    const { otp } = req.body;
 
     const existingUser = await getPrisma().user.findUnique({
       where: { email: username },
@@ -101,24 +102,75 @@ export function createApp(): Express {
       return;
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // ── Case 1: Send OTP ──
+    if (!otp) {
+      const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
 
-    const user = await getPrisma().user.create({
-      data: {
-        email: username,
-        password: hashedPassword,
-        name,
-      },
-    });
+      try {
+        await getPrisma().otpVerification.upsert({
+          where: { email: username },
+          update: { otp: generatedOtp, expiresAt },
+          create: { email: username, otp: generatedOtp, expiresAt },
+        });
 
-    // Send Welcome Email asynchronously
-    import("./utils/email").then(({ sendWelcomeEmail }) => {
-      sendWelcomeEmail(username, name).catch((err) => {
-        console.error("Welcome email send error:", err);
+        // Send OTP email asynchronously
+        import("./utils/email").then(({ sendOtpEmail }) => {
+          sendOtpEmail(username, name, generatedOtp).catch((err) => {
+            console.error("OTP send error:", err);
+          });
+        });
+
+        res.status(200).json({ 
+          otpRequired: true, 
+          message: "Verification code sent to your email. Please enter it to complete signup." 
+        });
+        return;
+      } catch (err) {
+        console.error("OTP upsert error:", err);
+        res.status(500).json({ error: "Failed to send verification code. Please try again." });
+        return;
+      }
+    }
+
+    // ── Case 2: Verify OTP and create user ──
+    try {
+      const verification = await getPrisma().otpVerification.findUnique({
+        where: { email: username },
       });
-    });
 
-    res.status(201).json({ userId: user.id });
+      if (!verification || verification.otp !== otp || verification.expiresAt < new Date()) {
+        res.status(400).json({ error: "Invalid or expired verification code" });
+        return;
+      }
+
+      // Valid OTP: remove verification record
+      await getPrisma().otpVerification.delete({
+        where: { email: username },
+      });
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const user = await getPrisma().user.create({
+        data: {
+          email: username,
+          password: hashedPassword,
+          name,
+        },
+      });
+
+      // Send Welcome Email asynchronously
+      import("./utils/email").then(({ sendWelcomeEmail }) => {
+        sendWelcomeEmail(username, name).catch((err) => {
+          console.error("Welcome email send error:", err);
+        });
+      });
+
+      res.status(201).json({ userId: user.id });
+    } catch (err) {
+      console.error("Signup validation error:", err);
+      res.status(500).json({ error: "Signup failed. Please try again." });
+    }
   });
 
   app.post("/signin", async (req: Request, res: Response): Promise<void> => {

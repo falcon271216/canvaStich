@@ -80,3 +80,32 @@ export async function sendRoomInvitation({
     throw err;
   }
 }
+
+export async function sendOtpEmail(toEmail: string, name: string, otp: string): Promise<void> {
+  const mailOptions = {
+    from: `SketchUI Security <security@${SENDER_DOMAIN}>`,
+    to: toEmail,
+    subject: `Your SketchUI Verification Code: ${otp} 🔐`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; background: #0c0c0f; color: #fafafa;">
+        <h2 style="color: #6366f1; margin-bottom: 1.5rem;">Confirm Your Email</h2>
+        <p>Hi <strong>${name}</strong>,</p>
+        <p>Thank you for signing up for SketchUI! To complete your registration, please enter the following verification code on the registration page:</p>
+        <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); padding: 1.5rem; text-align: center; border-radius: 8px; margin: 2rem 0;">
+          <span style="font-family: monospace; font-size: 2.2rem; font-weight: bold; letter-spacing: 0.25em; color: #818cf8;">${otp}</span>
+        </div>
+        <p style="font-size: 0.85rem; color: #a1a1aa;">This code will expire in 10 minutes. If you did not request this, you can safely ignore this email.</p>
+        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.06); margin: 2rem 0;" />
+        <p style="font-size: 0.85rem; color: #a1a1aa;">Best regards,<br/>The SketchUI Security Team</p>
+      </div>
+    `,
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] OTP email sent to ${toEmail}`);
+  } catch (err) {
+    console.error(`[Email] Failed to send OTP email to ${toEmail}:`, err);
+    throw err;
+  }
+}

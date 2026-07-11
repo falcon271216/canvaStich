@@ -113,3 +113,11 @@ model UsageEvent {
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
+
+model OtpVerification {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  otp       String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}

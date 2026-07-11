@@ -25,6 +25,10 @@ export default function HomePage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const [otp, setOtp] = useState("");
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpMessage, setOtpMessage] = useState("");
+
   // If already authenticated, redirect to projects
   useEffect(() => {
     const t = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -57,15 +61,30 @@ export default function HomePage() {
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setOtpMessage("");
     setLoading(true);
     try {
       const res = await fetch(`${API}/signup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, name: name || username }),
+        body: JSON.stringify({
+          username,
+          password,
+          name: name || username,
+          otp: otpSent ? otp.trim() : undefined,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Sign up failed");
+      
+      if (data.otpRequired) {
+        setOtpSent(true);
+        setOtpMessage(data.message || "OTP code sent to your email.");
+        setLoading(false);
+        return;
+      }
+
+      // If OTP verified successfully and user was created, auto sign-in
       const signInRes = await fetch(`${API}/signin`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -100,14 +119,14 @@ export default function HomePage() {
             <button
               type="button"
               className={`auth-tab ${tab === "signin" ? "active" : ""}`}
-              onClick={() => { setTab("signin"); setError(""); }}
+              onClick={() => { setTab("signin"); setError(""); setOtpSent(false); setOtp(""); setOtpMessage(""); }}
             >
               Sign in
             </button>
             <button
               type="button"
               className={`auth-tab ${tab === "signup" ? "active" : ""}`}
-              onClick={() => { setTab("signup"); setError(""); }}
+              onClick={() => { setTab("signup"); setError(""); setOtpSent(false); setOtp(""); setOtpMessage(""); }}
             >
               Create account
             </button>
@@ -163,6 +182,7 @@ export default function HomePage() {
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="you@example.com"
                   required
+                  disabled={otpSent}
                   autoComplete="email"
                 />
               </div>
@@ -174,6 +194,7 @@ export default function HomePage() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
+                  disabled={otpSent}
                   autoComplete="new-password"
                 />
               </div>
@@ -184,16 +205,39 @@ export default function HomePage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Your name"
+                  disabled={otpSent}
                   autoComplete="name"
                 />
               </div>
+
+              {otpSent && (
+                <div className="form-group" style={{ marginTop: "1rem" }}>
+                  <label style={{ color: "#818cf8", fontWeight: "bold" }}>Verification Code (OTP)</label>
+                  <input
+                    type="text"
+                    value={otp}
+                    onChange={(e) => setOtp(e.target.value)}
+                    placeholder="Enter 6-digit code"
+                    required
+                    maxLength={6}
+                    autoComplete="one-time-code"
+                    style={{ border: "1px solid #818cf8", background: "rgba(99,102,241,0.03)" }}
+                  />
+                  {otpMessage && (
+                    <span style={{ fontSize: "0.75rem", color: "#34d399", display: "block", marginTop: "0.25rem" }}>
+                      {otpMessage}
+                    </span>
+                  )}
+                </div>
+              )}
+
               <button
                 type="submit"
                 className="primary"
                 disabled={loading}
-                style={{ width: "100%", marginTop: "0.5rem" }}
+                style={{ width: "100%", marginTop: "1rem" }}
               >
-                {loading ? "Creating account…" : "Create account"}
+                {loading ? (otpSent ? "Verifying code…" : "Sending code…") : (otpSent ? "Verify & Register" : "Send Verification Code")}
               </button>
             </form>
           )}

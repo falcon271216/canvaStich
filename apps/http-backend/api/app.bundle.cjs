@@ -46795,6 +46795,7 @@ var require_nodemailer = __commonJS({
 // src/utils/email.ts
 var email_exports = {};
 __export(email_exports, {
+  sendOtpEmail: () => sendOtpEmail,
   sendRoomInvitation: () => sendRoomInvitation,
   sendWelcomeEmail: () => sendWelcomeEmail,
   transporter: () => transporter
@@ -46855,6 +46856,33 @@ async function sendRoomInvitation({
     console.log(`[Email] Room invitation sent to ${toEmail}`);
   } catch (err) {
     console.error(`[Email] Failed to send room invitation to ${toEmail}:`, err);
+    throw err;
+  }
+}
+async function sendOtpEmail(toEmail, name, otp) {
+  const mailOptions = {
+    from: `SketchUI Security <security@${SENDER_DOMAIN}>`,
+    to: toEmail,
+    subject: `Your SketchUI Verification Code: ${otp} \u{1F510}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; background: #0c0c0f; color: #fafafa;">
+        <h2 style="color: #6366f1; margin-bottom: 1.5rem;">Confirm Your Email</h2>
+        <p>Hi <strong>${name}</strong>,</p>
+        <p>Thank you for signing up for SketchUI! To complete your registration, please enter the following verification code on the registration page:</p>
+        <div style="background: rgba(99,102,241,0.08); border: 1px solid rgba(99,102,241,0.2); padding: 1.5rem; text-align: center; border-radius: 8px; margin: 2rem 0;">
+          <span style="font-family: monospace; font-size: 2.2rem; font-weight: bold; letter-spacing: 0.25em; color: #818cf8;">${otp}</span>
+        </div>
+        <p style="font-size: 0.85rem; color: #a1a1aa;">This code will expire in 10 minutes. If you did not request this, you can safely ignore this email.</p>
+        <hr style="border: 0; border-top: 1px solid rgba(255,255,255,0.06); margin: 2rem 0;" />
+        <p style="font-size: 0.85rem; color: #a1a1aa;">Best regards,<br/>The SketchUI Security Team</p>
+      </div>
+    `
+  };
+  try {
+    await transporter.sendMail(mailOptions);
+    console.log(`[Email] OTP email sent to ${toEmail}`);
+  } catch (err) {
+    console.error(`[Email] Failed to send OTP email to ${toEmail}:`, err);
     throw err;
   }
 }
@@ -53456,6 +53484,7 @@ function createApp() {
       return;
     }
     const { username, password, name } = parsed.data;
+    const { otp } = req.body;
     const existingUser = await getPrisma().user.findUnique({
       where: { email: username }
     });
@@ -53463,20 +53492,60 @@ function createApp() {
       res.status(409).json({ error: "User already exists" });
       return;
     }
-    const hashedPassword = await bcryptjs_default.hash(password, 10);
-    const user = await getPrisma().user.create({
-      data: {
-        email: username,
-        password: hashedPassword,
-        name
+    if (!otp) {
+      const generatedOtp = Math.floor(1e5 + Math.random() * 9e5).toString();
+      const expiresAt = new Date(Date.now() + 10 * 60 * 1e3);
+      try {
+        await getPrisma().otpVerification.upsert({
+          where: { email: username },
+          update: { otp: generatedOtp, expiresAt },
+          create: { email: username, otp: generatedOtp, expiresAt }
+        });
+        Promise.resolve().then(() => (init_email(), email_exports)).then(({ sendOtpEmail: sendOtpEmail2 }) => {
+          sendOtpEmail2(username, name, generatedOtp).catch((err) => {
+            console.error("OTP send error:", err);
+          });
+        });
+        res.status(200).json({
+          otpRequired: true,
+          message: "Verification code sent to your email. Please enter it to complete signup."
+        });
+        return;
+      } catch (err) {
+        console.error("OTP upsert error:", err);
+        res.status(500).json({ error: "Failed to send verification code. Please try again." });
+        return;
       }
-    });
-    Promise.resolve().then(() => (init_email(), email_exports)).then(({ sendWelcomeEmail: sendWelcomeEmail2 }) => {
-      sendWelcomeEmail2(username, name).catch((err) => {
-        console.error("Welcome email send error:", err);
+    }
+    try {
+      const verification = await getPrisma().otpVerification.findUnique({
+        where: { email: username }
       });
-    });
-    res.status(201).json({ userId: user.id });
+      if (!verification || verification.otp !== otp || verification.expiresAt < /* @__PURE__ */ new Date()) {
+        res.status(400).json({ error: "Invalid or expired verification code" });
+        return;
+      }
+      await getPrisma().otpVerification.delete({
+        where: { email: username }
+      });
+      const hashedPassword = await bcryptjs_default.hash(password, 10);
+      const user = await getPrisma().user.create({
+        data: {
+          email: username,
+          password: hashedPassword,
+          name
+        }
+      });
+      Promise.resolve().then(() => (init_email(), email_exports)).then(({ sendWelcomeEmail: sendWelcomeEmail2 }) => {
+        sendWelcomeEmail2(username, name).catch((err) => {
+          console.error("Welcome email send error:", err);
+        });
+      });
+      res.status(201).json({ userId: user.id });
+    } catch (err) {
+      console.error("Signup validation error:", err);
+      res.status(500).json({ error: "Signup failed. Please try again." });
+    }
   });
   app2.post("/signin", async (req, res) => {
     const parsed = signinSchema.safeParse(req.body);
