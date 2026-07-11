@@ -740,6 +740,190 @@ export function useCanvasManager({
     }
   }, [tool, color, strokeWidth, onSendDrawEventAction, finishEraserStroke]);
 
+  /* ── Touch event handlers (mobile/tablet) ── */
+
+  /**
+   * Convert a TouchEvent into a synthetic position the same way getPos() does
+   * for mouse events. Uses the first changed touch point.
+   */
+  const getTouchPos = (e: React.TouchEvent | TouchEvent): Point | null => {
+    const touch = (e as TouchEvent).changedTouches?.[0] ?? (e as React.TouchEvent).changedTouches?.[0];
+    if (!touch) return null;
+    const viewportEl = viewportRef.current;
+    if (!viewportEl) return { x: 0, y: 0, t: performance.now() };
+    const rect = viewportEl.getBoundingClientRect();
+    const world = screenToWorld(touch.clientX, touch.clientY, rect, viewportStateRef.current);
+    return { x: world.x, y: world.y, t: performance.now() };
+  };
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Only handle single-finger touches (two fingers = pinch/pan)
+    if (e.touches.length !== 1) return;
+    if (toolRef.current === "select") return;
+    e.preventDefault();
+
+    const pos = getTouchPos(e);
+    if (!pos) return;
+    startRef.current = pos;
+    isDrawing.current = true;
+
+    if (toolRef.current === "eraser") {
+      erasedThisStrokeRef.current.clear();
+    }
+    if (toolRef.current === "pencil") {
+      pencilPath.current = [pos];
+      slidingDetector.current.reset();
+      slidingDetector.current.addPoint(pos);
+      setLiveDetection(null);
+    }
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return;
+    if (!isDrawing.current) return;
+    e.preventDefault();
+
+    const pos = getTouchPos(e);
+    if (!pos) return;
+    const start = startRef.current;
+    const tool = toolRef.current;
+
+    if (tool === "pencil") {
+      pencilPath.current.push(pos);
+      slidingDetector.current.addPoint(pos);
+      const live = slidingDetector.current.getLatestDetection();
+      if (live && live.smoothedConfidence >= 0.45) {
+        setLiveDetection(live);
+      }
+      renderCanvasRef.current();
+    } else if (tool === "eraser") {
+      if (!start) return;
+      renderCanvasRef.current();
+      const x = Math.min(start.x, pos.x);
+      const y = Math.min(start.y, pos.y);
+      const w = Math.abs(pos.x - start.x);
+      const h = Math.abs(pos.y - start.y);
+      setEraserPreview({ x, y, w, h });
+      performErase(start, pos);
+    } else if (tool === "rectangle" || tool === "circle" || tool === "line" || tool === "arrow") {
+      renderCanvasRef.current();
+      const ctx = canvasRef.current?.getContext("2d");
+      if (!ctx || !start) return;
+      applyCameraTransform(ctx, viewportStateRef.current);
+      const strokeC = colorRef.current;
+      const lw = strokeWidthRef.current;
+      ctx.strokeStyle = strokeC;
+      ctx.lineWidth = lw;
+      if (tool === "rectangle") {
+        ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
+      } else if (tool === "circle") {
+        const cx = (start.x + pos.x) / 2;
+        const cy = (start.y + pos.y) / 2;
+        const rx = Math.abs(pos.x - start.x) / 2;
+        const ry = Math.abs(pos.y - start.y) / 2;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      } else if (tool === "line") {
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+      } else if (tool === "arrow") {
+        ctx.lineCap = "round";
+        ctx.beginPath();
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        drawArrowHead(ctx, start.x, start.y, pos.x, pos.y, lw);
+      }
+    }
+  }, [performErase, canvasRef]);
+
+  const handleTouchEnd = useCallback((e: React.TouchEvent) => {
+    if (!isDrawing.current) return;
+    e.preventDefault();
+
+    const pos = getTouchPos(e);
+    const start = startRef.current;
+    const tool = toolRef.current;
+
+    isDrawing.current = false;
+    startRef.current = null;
+
+    if (tool === "eraser") {
+      if (pos && start) finishEraserStroke(start, pos);
+      return;
+    }
+
+    if ((tool === "line" || tool === "arrow" || tool === "rectangle") && start && pos) {
+      const dx = pos.x - start.x;
+      const dy = pos.y - start.y;
+      if (Math.hypot(dx, dy) < 3) return;
+      const shapeId = createShapeId();
+      const shapeData = { x1: start.x, y1: start.y, x2: pos.x, y2: pos.y, stroke: colorRef.current, lineWidth: strokeWidthRef.current };
+      onSendDrawEventAction(tool, shapeData, shapeId);
+      return;
+    }
+
+    if (tool === "circle" && start && pos) {
+      const rx = Math.abs(pos.x - start.x) / 2;
+      const ry = Math.abs(pos.y - start.y) / 2;
+      if (rx < 2 && ry < 2) return;
+      const shapeId = createShapeId();
+      const shapeData = { cx: (start.x + pos.x) / 2, cy: (start.y + pos.y) / 2, rx, ry, stroke: colorRef.current, lineWidth: strokeWidthRef.current };
+      onSendDrawEventAction(tool, shapeData, shapeId);
+      return;
+    }
+
+    if (tool === "pencil") {
+      // Reuse the same pencil-finish logic by synthesising a fake MouseEvent
+      // via a direct call — we can’t call handleMouseUp here (it reads from
+      // getPos which needs a React.MouseEvent), so we inline the finish.
+      const shapeId = createShapeId();
+      const capturedPath = [...pencilPath.current];
+      if (capturedPath.length < 2) { setLiveDetection(null); slidingDetector.current.reset(); return; }
+      const pathData = { path: capturedPath, stroke: colorRef.current, lineWidth: strokeWidthRef.current };
+      onSendDrawEventAction("pencil", pathData, shapeId);
+
+      if (capturedPath.length >= 8) {
+        import("@repo/pattern-detection").then(({ classifyUIComponent }) => {
+          const canvasEl = canvasRef.current;
+          const canvasArea = canvasEl ? canvasEl.width * canvasEl.height : 1600 * 900;
+          const result = classifyUIComponent([capturedPath], canvasArea);
+          const shouldComplete =
+            result.confidence >= 0.65 &&
+            (
+              AUTO_COMPLETE_UI_TYPES.has(result.type) ||
+              (result.type === 'card' && result.boundingBox.width * result.boundingBox.height < CARD_MAX_AREA_FOR_COMPLETION)
+            );
+          if (shouldComplete && onShapeCompleted) {
+            onShapeCompleted(shapeId, result.type, {
+              x: result.boundingBox.x, y: result.boundingBox.y,
+              w: result.boundingBox.width, h: result.boundingBox.height,
+            });
+            return;
+          }
+          import("../lib/ml").then(({ predictPattern }) => {
+            predictPattern(capturedPath).then((mlPredictions) => {
+              const geoResult = detectShape(capturedPath);
+              if (geoResult.confidence >= PATTERN_CONFIDENCE_THRESHOLD && geoResult.completion && geoResult.label !== "unknown") {
+                onSendDrawEventAction("analysis", { completion: geoResult.completion, detectedLabel: geoResult.label, confidence: geoResult.confidence, method: geoResult.method, dtwDistance: geoResult.dtwMatch?.normalizedDistance ?? null, velocityProfile: geoResult.strokeFeatures?.velocityProfile ?? null, strokeDuration: geoResult.strokeFeatures?.duration ?? null, meanSpeed: geoResult.strokeFeatures?.meanSpeed ?? null, speedPeaks: geoResult.strokeFeatures?.speedPeaks ?? null, mlPredictions });
+              } else if (mlPredictions?.length) {
+                const topPred = mlPredictions[0];
+                if (topPred && topPred.probability > 0.4) {
+                  onSendDrawEventAction("analysis", { completion: { type: "path", path: capturedPath, stroke: "#a855f7" }, detectedLabel: topPred.className, confidence: topPred.probability, method: "cnn", dtwDistance: null, velocityProfile: null, strokeDuration: null, meanSpeed: null, speedPeaks: null, mlPredictions });
+                }
+              }
+            });
+          });
+        });
+      }
+      setLiveDetection(null);
+      slidingDetector.current.reset();
+    }
+  }, [onSendDrawEventAction, finishEraserStroke, canvasRef]);
+
   /* Finish eraser drag even when pointer leaves the canvas */
   useEffect(() => {
     const onWindowMouseUp = (e: MouseEvent) => {
@@ -770,6 +954,9 @@ export function useCanvasManager({
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
     renderCanvas,
     liveDetection,
     eraserPreview,

@@ -171,23 +171,29 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           createdAt: msg.createdAt,
         };
 
-        // Already have this DB message
+        // Already have this exact DB message by id — skip
         if (serverMsg.id != null && prev.some((m) => m.id === serverMsg.id)) {
           return prev;
         }
 
-        // Replace optimistic placeholder (no id, same content; match user when known)
-        const pendingIdx = prev.findIndex((m) => {
-          if (m.id != null || m.content !== serverMsg.content) return false;
-          if (!m.userId || !serverMsg.userId) return true;
-          return m.userId === serverMsg.userId;
-        });
-        if (pendingIdx !== -1) {
-          const next = [...prev];
-          next[pendingIdx] = { ...serverMsg, key: prev[pendingIdx]!.key };
-          return next;
+        // Replace optimistic placeholder ONLY when:
+        //  - the pending message has no DB id yet (optimistic)
+        //  - content matches
+        //  - userId is known and matches exactly (prevents cross-user collision)
+        const myUserId = myUserIdRef.current;
+        if (myUserId && serverMsg.userId === myUserId) {
+          const pendingIdx = prev.findIndex(
+            (m) => m.id == null && m.content === serverMsg.content && m.userId === myUserId,
+          );
+          if (pendingIdx !== -1) {
+            const next = [...prev];
+            next[pendingIdx] = { ...serverMsg, key: prev[pendingIdx]!.key };
+            return next;
+          }
         }
 
+        // All other messages (from other users, or own message with no pending entry)
+        // are simply appended.
         return [...prev, serverMsg];
       });
     },
@@ -615,6 +621,9 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
+    handleTouchStart,
+    handleTouchMove,
+    handleTouchEnd,
     renderCanvas,
     liveDetection,
     eraserPreview,
@@ -1355,6 +1364,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               className="draw-canvas"
               style={{
                 pointerEvents: tool === "select" ? "none" : "auto",
+                touchAction: "none",
                 cursor: isSpaceDown || isPanning
                   ? isPanning ? "grabbing" : "grab"
                   : tool === "eraser"
@@ -1378,6 +1388,10 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               }}
               onMouseMove={combinedMouseMove}
               onDoubleClick={handleCanvasDoubleClick}
+              onTouchStart={handleTouchStart}
+              onTouchMove={handleTouchMove}
+              onTouchEnd={handleTouchEnd}
+              onTouchCancel={handleTouchEnd}
             />
 
             <div
