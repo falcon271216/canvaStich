@@ -111,7 +111,7 @@ function openPreviewInNewTab(htmlCode: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-import { openReactPreviewInNewTab, cleanReactCodeForPreview } from "../../lib/reactPreviewShell";
+import { openReactPreviewInNewTab, cleanReactCodeForPreview, mountReactPreviewInIframe } from "../../lib/reactPreviewShell";
 /* ────────────────────── component ────────────────────── */
 
 export default function CodeExportPanel({
@@ -136,6 +136,7 @@ export default function CodeExportPanel({
   const [copied, setCopied] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const autoGenRef = useRef(false);
+  const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   /* ── Progress state (Layer 7) ── */
   const [progressStep, setProgressStep] = useState(0);
@@ -212,19 +213,23 @@ export default function CodeExportPanel({
       }
 
       const { code: rawCode } = await res.json();
-      const code = framework === "react" ? cleanReactCodeForPreview(rawCode) : rawCode;
+      // Model sometimes returns HTML even when React was requested
+      const looksHtml = /^\s*<!DOCTYPE/i.test(rawCode) || /^\s*<html[\s>]/i.test(rawCode);
+      const effectiveFramework = framework === "react" && looksHtml ? "html" : framework;
+      const code =
+        effectiveFramework === "react" ? cleanReactCodeForPreview(rawCode) : rawCode;
       setProgressStep(5);
       await new Promise(r => setTimeout(r, 400));
 
       setGeneratedCode(code);
-      setGeneratedFramework(framework);
+      setGeneratedFramework(effectiveFramework);
       setState("preview");
-      setActiveTab("code");
+      setActiveTab("preview");
       onGenerationComplete?.();
 
       // Auto-open preview tab immediately
       setTimeout(() => {
-        if (framework === 'html') openPreviewInNewTab(code);
+        if (effectiveFramework === "html") openPreviewInNewTab(code);
         else openReactPreviewInNewTab(code, componentName);
       }, 100);
     } catch (err: any) {
@@ -301,6 +306,20 @@ export default function CodeExportPanel({
       autoGenRef.current = false;
     }
   }, [autoGenerate]);
+
+  // Mount live preview into the in-panel iframe
+  useEffect(() => {
+    if (state !== "preview" || !generatedCode || activeTab !== "preview") return;
+    const iframe = previewFrameRef.current;
+    if (!iframe) return;
+
+    const fw = generatedFramework ?? framework;
+    if (fw === "html") {
+      iframe.srcdoc = generatedCode;
+      return;
+    }
+    mountReactPreviewInIframe(iframe, generatedCode, componentName);
+  }, [state, generatedCode, activeTab, generatedFramework, framework, componentName]);
 
   const handleCopy = useCallback(async () => {
     if (!generatedCode) return;
@@ -515,8 +534,16 @@ export default function CodeExportPanel({
 
           {/* Content */}
           {activeTab === "preview" ? (
-            <div className="premium-code-view" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', background: '#111' }}>
-              Preview opened in new tab.
+            <div className="premium-preview-frame-wrap">
+              <iframe
+                ref={previewFrameRef}
+                title="UI Preview"
+                className="premium-preview-iframe"
+                sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+              />
+              <p className="premium-preview-hint">
+                Live preview below. Use <strong>Open Full Preview</strong> if the panel looks blank (allow popups).
+              </p>
             </div>
           ) : (
             <div className="premium-code-panel">

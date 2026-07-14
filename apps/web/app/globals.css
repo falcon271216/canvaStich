@@ -2147,6 +2147,27 @@ input:focus {
   margin: 0 !important;
   background: transparent !important;
 }
+.premium-preview-frame-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+  min-height: 280px;
+}
+.premium-preview-iframe {
+  width: 100%;
+  height: min(55vh, 520px);
+  min-height: 280px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+.premium-preview-hint {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
 
 /* ═══════════════════════════════════════════════════════════
    LANDING PAGE
