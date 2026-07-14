@@ -6,10 +6,10 @@ export const metadata: Metadata = {
   description: "Draw rough wireframes and get production React/HTML code instantly. AI-powered sketch recognition with real-time collaboration.",
   icons: {
     icon: [
+      { url: "/icon", type: "image/png", sizes: "64x64" },
       { url: "/favicon.svg", type: "image/svg+xml" },
-      { url: "/favicon.png", type: "image/png" },
     ],
-    apple: [{ url: "/favicon.png" }],
+    apple: [{ url: "/icon", sizes: "64x64", type: "image/png" }],
   },
 };
 
@@ -20,7 +20,6 @@ export const viewport: Viewport = {
   userScalable: false,
   themeColor: "#09090b",
 };
-
 
 export default function RootLayout({
   children,
