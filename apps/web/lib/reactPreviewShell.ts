@@ -1,9 +1,9 @@
 /**
  * Reliable React+Tailwind preview for generated SketchUI code.
  *
- * Opens a same-origin about:blank window and document.writes the shell so CDN
- * scripts (React / Babel / Tailwind) load. Blob URLs are opaque and frequently
- * fail CDN loads when crossOrigin is set — avoid that path for execution.
+ * Critical HTML rule: never embed raw JSON.stringify() into <script> without
+ * escaping "</script>" — the browser closes the tag early and dumps the rest
+ * of the bootstrap as visible page text (the bug in production screenshots).
  */
 
 const HOOK_NAMES = [
@@ -31,10 +31,33 @@ const BABEL_CDNS = [
   "https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.0/babel.min.js",
   "https://unpkg.com/@babel/standalone@7.26.0/babel.min.js",
 ];
-const TAILWIND_CDNS = [
-  "https://cdn.tailwindcss.com",
-  "https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4",
-];
+const TAILWIND_CDNS = ["https://cdn.tailwindcss.com"];
+
+/** Safe for embedding inside HTML <script>…</script> tags. */
+function jsonForHtmlScript(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/\u2028/g, "\\u2028")
+    .replace(/\u2029/g, "\\u2029");
+}
+
+/** Base64 UTF-8 — maximally safe payload for script tags. */
+function toBase64Utf8(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  if (typeof btoa === "function") {
+    return btoa(binary);
+  }
+  // Node SSR fallback without assuming Buffer types
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const Buf = (globalThis as any).Buffer;
+  if (Buf) return Buf.from(text, "utf8").toString("base64");
+  throw new Error("No base64 encoder available");
+}
 
 export function cleanReactCodeForPreview(reactCode: string): string {
   let code = String(reactCode || "")
@@ -60,7 +83,6 @@ export function cleanReactCodeForPreview(reactCode: string): string {
     code = code.replace(new RegExp(`(^|[^\\w.$])${hook}(\\s*\\()`, "gm"), `$1React.${hook}$2`);
   }
 
-  // Ensure at least one top-level component exists
   if (!/function\s+[A-Z][A-Za-z0-9]*\s*\(/.test(code) && !/const\s+[A-Z][A-Za-z0-9]*\s*=/.test(code)) {
     code = `function GeneratedComponent() {\n  return (\n${code}\n  );\n}`;
   }
@@ -85,10 +107,6 @@ export function detectReactComponentName(code: string, fallback = "GeneratedComp
   return fallback || "GeneratedComponent";
 }
 
-function cdnListJson(urls: string[]): string {
-  return JSON.stringify(urls);
-}
-
 export function buildReactPreviewHtml(reactCode: string, componentNameHint?: string): string {
   const cleanCode = cleanReactCodeForPreview(reactCode);
   const componentName = detectReactComponentName(
@@ -96,11 +114,15 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
     componentNameHint?.replace(/[^a-zA-Z0-9]/g, "") || "GeneratedComponent",
   );
 
-  // Keep user JSX and mount SEPARATE: transform only the component, then mount from plain JS.
-  // Mixing IIFE + Babel can leave the component in a temporal-dead-zone / scope mess.
-  const sourceJson = JSON.stringify(reactCode);
-  const cleanJson = JSON.stringify(cleanCode);
-  const nameJson = JSON.stringify(componentName);
+  // Embed payloads as base64 so "</script>" inside generated JSX can never
+  // break out of the HTML <script> tag and dump bootstrap JS onto the page.
+  const sourceB64 = toBase64Utf8(reactCode);
+  const cleanB64 = toBase64Utf8(cleanCode);
+  const nameJson = jsonForHtmlScript(componentName);
+  const reactUrls = jsonForHtmlScript(REACT_CDNS);
+  const reactDomUrls = jsonForHtmlScript(REACT_DOM_CDNS);
+  const babelUrls = jsonForHtmlScript(BABEL_CDNS);
+  const twUrls = jsonForHtmlScript(TAILWIND_CDNS);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -138,7 +160,7 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
 </head>
 <body>
   <div id="preview-bar">
-    <span style="color:#94a3b8">✨ SketchUI React Preview</span>
+    <span style="color:#94a3b8">SketchUI React Preview</span>
     <div style="display:flex;gap:6px;margin-left:16px">
       <button type="button" onclick="setViewport('100%')">Desktop</button>
       <button type="button" onclick="setViewport('768px')">Tablet</button>
@@ -157,13 +179,21 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
   <div id="error-msg"></div>
 
   <script>
-    var SOURCE_CODE = ${sourceJson};
-    var USER_JSX = ${cleanJson};
+    function b64ToUtf8(b64) {
+      try {
+        return decodeURIComponent(escape(atob(b64)));
+      } catch (e1) {
+        try { return atob(b64); } catch (e2) { return ""; }
+      }
+    }
+
+    var SOURCE_CODE = b64ToUtf8(${jsonForHtmlScript(sourceB64)});
+    var USER_JSX = b64ToUtf8(${jsonForHtmlScript(cleanB64)});
     var COMPONENT_NAME = ${nameJson};
-    var REACT_URLS = ${cdnListJson(REACT_CDNS)};
-    var REACT_DOM_URLS = ${cdnListJson(REACT_DOM_CDNS)};
-    var BABEL_URLS = ${cdnListJson(BABEL_CDNS)};
-    var TAILWIND_URLS = ${cdnListJson(TAILWIND_CDNS)};
+    var REACT_URLS = ${reactUrls};
+    var REACT_DOM_URLS = ${reactDomUrls};
+    var BABEL_URLS = ${babelUrls};
+    var TAILWIND_URLS = ${twUrls};
 
     function setViewport(width) {
       document.getElementById("viewport-container").style.maxWidth = width;
@@ -192,7 +222,6 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
       return new Promise(function (resolve, reject) {
         var s = document.createElement("script");
         s.src = src;
-        // Do NOT set crossOrigin — breaks CDN loads on about:blank / some browsers
         s.onload = function () { resolve(src); };
         s.onerror = function () { reject(new Error("Failed: " + src)); };
         document.head.appendChild(s);
@@ -209,24 +238,24 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
 
     async function bootstrap() {
       try {
+        if (!USER_JSX || !USER_JSX.trim()) {
+          throw new Error("Empty React source — regenerate the UI.");
+        }
+
         await loadFirst(REACT_URLS);
         await loadFirst(REACT_DOM_URLS);
         await loadFirst(BABEL_URLS);
-        try {
-          await loadFirst(TAILWIND_URLS);
-        } catch (twErr) {
-          console.warn("Tailwind CDN unavailable, continuing without it:", twErr);
+        try { await loadFirst(TAILWIND_URLS); } catch (twErr) {
+          console.warn("Tailwind CDN unavailable:", twErr);
         }
 
         if (typeof React === "undefined") throw new Error("React failed to load from CDN.");
         if (typeof ReactDOM === "undefined") throw new Error("ReactDOM failed to load from CDN.");
         if (typeof Babel === "undefined") throw new Error("Babel failed to load from CDN.");
 
-        // Compile JSX → plain JS that assigns component on window
         var wrapped =
           USER_JSX +
-          "\\n;" +
-          "window." + COMPONENT_NAME + " = " + COMPONENT_NAME + ";" +
+          ";\\nwindow[" + JSON.stringify(COMPONENT_NAME) + "] = " + COMPONENT_NAME + ";" +
           "window.__SKETCH_UI_COMPONENT__ = " + COMPONENT_NAME + ";";
 
         var transformed;
@@ -239,10 +268,7 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
           throw new Error("Babel compile failed: " + (babelErr && babelErr.message ? babelErr.message : babelErr));
         }
 
-        // Execute compiled component in global scope
         try {
-          // Prefer indirect eval so function declarations bind to window in sloppy... 
-          // Babel emits "use strict", so we MUST assign onto window (done in wrapped source).
           (0, eval)(transformed);
         } catch (runErr) {
           throw new Error("Runtime error in generated UI: " + (runErr && runErr.message ? runErr.message : runErr));
@@ -256,15 +282,13 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
         if (!Component) {
           throw new Error(
             "Component '" + COMPONENT_NAME + "' was not found after compile.\\n" +
-            "Make sure the generated code defines: function " + COMPONENT_NAME + "() { ... }"
+            "Define: function " + COMPONENT_NAME + "() { ... }"
           );
         }
 
         var rootEl = document.getElementById("root");
         rootEl.innerHTML = "";
-        if (!ReactDOM.createRoot) {
-          throw new Error("ReactDOM.createRoot missing — React 18 CDN required.");
-        }
+        if (!ReactDOM.createRoot) throw new Error("ReactDOM.createRoot missing — need React 18.");
         ReactDOM.createRoot(rootEl).render(React.createElement(Component));
       } catch (err) {
         showError(err && err.message ? err.message : String(err));
@@ -278,8 +302,8 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
 }
 
 /**
- * Open preview via same-origin /preview/react (CDN-safe).
- * Falls back to about:blank document.write, then blob.
+ * Prefer same-origin /preview/react. Avoid blob URLs (they break CDNs and
+ * previously dumped script text when JSON contained </script>).
  */
 export function openReactPreviewInNewTab(reactCode: string, componentNameHint?: string): void {
   const name =
@@ -297,7 +321,7 @@ export function openReactPreviewInNewTab(reactCode: string, componentNameHint?: 
   const win = window.open(previewPath, "_blank");
   if (win) return;
 
-  // Popup blocked — try about:blank write
+  // Popup blocked — write into about:blank (same-origin inheritance)
   const html = buildReactPreviewHtml(reactCode, name);
   const blank = window.open("about:blank", "_blank");
   if (blank) {
@@ -313,21 +337,9 @@ export function openReactPreviewInNewTab(reactCode: string, componentNameHint?: 
     }
   }
 
-  const blob = new Blob([html], { type: "text/html" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "sketchui-react-preview.html";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  alert("Popup blocked. Allow popups, or open the downloaded sketchui-react-preview.html file.");
-  setTimeout(() => URL.revokeObjectURL(url), 180000);
+  alert("Please allow popups for SketchUI, then click Open Full Preview again.");
 }
 
-/**
- * Write preview HTML into an existing iframe (in-panel preview).
- */
 export function mountReactPreviewInIframe(
   iframe: HTMLIFrameElement,
   reactCode: string,
@@ -338,6 +350,7 @@ export function mountReactPreviewInIframe(
   const write = () => {
     const doc = iframe.contentDocument;
     if (!doc) {
+      // srcdoc with base64 payloads is now safe (no raw </script> in source)
       iframe.srcdoc = html;
       return;
     }
