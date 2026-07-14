@@ -207,7 +207,7 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
     const purposeText = typeof purpose === "string" ? purpose.trim().slice(0, 200) : "";
 
     // Check cache (include purpose so weather ≠ college for same layout)
-    const cacheKey = `premium:${simpleHash({ layoutTree, theme, framework, purpose: purposeText })}`;
+    const cacheKey = `premium:v3:${simpleHash({ layoutTree, theme, framework, purpose: purposeText })}`;
     const cached = cacheGet(cacheKey);
     if (cached) {
       // Record cached usage event too
@@ -279,7 +279,7 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
         ],
         generationConfig: {
           maxOutputTokens: 16000,
-          temperature: purposeText ? 0.25 : 0.4,
+          temperature: purposeText ? 0.45 : 0.5,
         },
       }),
     });

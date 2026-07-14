@@ -1,20 +1,42 @@
 /**
- * Builds a self-contained HTML shell that runs generated React code in a new tab.
- * Uses Babel standalone + React UMD builds from jsDelivr.
+ * Builds a self-contained HTML shell that runs generated React + Tailwind code in a new tab.
+ * Uses Babel standalone + React 18 UMD + Tailwind CDN (all awaited before mount).
  */
 
+const HOOK_NAMES = [
+  "useState",
+  "useEffect",
+  "useRef",
+  "useMemo",
+  "useCallback",
+  "useReducer",
+  "useContext",
+  "useLayoutEffect",
+  "useId",
+  "useImperativeHandle",
+] as const;
+
 export function cleanReactCodeForPreview(reactCode: string): string {
-  return reactCode
+  let code = reactCode
     .replace(/^import\s+[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, "")
     .replace(/^import\s+['"][^'"]+['"];?\s*$/gm, "")
     .replace(/^export\s+default\s+\w+;?\s*$/gm, "")
     .replace(/^export\s+default\s+function\s+/gm, "function ")
     .replace(/^export\s+function\s+/gm, "function ")
     .replace(/^export\s+const\s+/gm, "const ")
-    .replace(/:\s*(?:React\.)?(?:FC|FunctionComponent|JSX\.Element|ReactNode|string|number|boolean|any)\b/g, "")
-    .replace(/^(?:interface|type)\s+\w+\s*\{[^}]*\}\s*;?\s*$/gm, "")
-    .replace(/\s+as\s+\w+/g, "")
+    .replace(/^export\s+\{[^}]+\};?\s*$/gm, "")
+    .replace(/:\s*(?:React\.)?(?:FC|FunctionComponent|JSX\.Element|ReactElement|ReactNode|string|number|boolean|any|void|null|undefined)\b/g, "")
+    .replace(/^(?:interface|type)\s+\w+[^{;]*\{[\s\S]*?\}\s*;?\s*$/gm, "")
+    .replace(/^(?:interface|type)\s+\w+[^=\n]*=\s*[^;]+;?\s*$/gm, "")
+    .replace(/\s+as\s+(?:const|string|number|boolean|any|\w+)/g, "")
     .trim();
+
+  for (const hook of HOOK_NAMES) {
+    // Start of line / after non-dot identifier boundary
+    code = code.replace(new RegExp(`(^|[^\\w.$])${hook}(\\s*\\()`, "gm"), `$1React.${hook}$2`);
+  }
+
+  return code;
 }
 
 export function detectReactComponentName(code: string, fallback = "GeneratedComponent"): string {
@@ -23,6 +45,7 @@ export function detectReactComponentName(code: string, fallback = "GeneratedComp
     /function\s+([A-Z][A-Za-z0-9]*)\s*\(/,
     /const\s+([A-Z][A-Za-z0-9]*)\s*=\s*\([^)]*\)\s*=>/,
     /const\s+([A-Z][A-Za-z0-9]*)\s*=\s*function/,
+    /const\s+([A-Z][A-Za-z0-9]*)\s*=\s*React\.memo/,
   ];
 
   for (const pattern of patterns) {
@@ -30,7 +53,7 @@ export function detectReactComponentName(code: string, fallback = "GeneratedComp
     if (match?.[1]) return match[1];
   }
 
-  return fallback;
+  return fallback || "GeneratedComponent";
 }
 
 export function buildReactPreviewHtml(reactCode: string, componentNameHint?: string): string {
@@ -40,77 +63,90 @@ export function buildReactPreviewHtml(reactCode: string, componentNameHint?: str
     componentNameHint?.replace(/[^a-zA-Z0-9]/g, "") || "GeneratedComponent",
   );
 
-  const mountSnippet = `
-var __rootEl = document.getElementById("root");
-var __loading = document.getElementById("loading-msg");
-if (__loading) __loading.remove();
-var __root = ReactDOM.createRoot(__rootEl);
-var __Component = typeof ${componentName} !== "undefined" ? ${componentName} : null;
-if (!__Component) {
-  throw new Error("Component ${componentName} was not found in generated code.");
-}
-__root.render(React.createElement(__Component));
+  // User code + mount (Babel will compile JSX in the component body)
+  const executableCode = `
+${cleanCode}
+
+(function mountSketchPreview() {
+  var rootEl = document.getElementById("root");
+  var loading = document.getElementById("loading-msg");
+  if (loading) loading.remove();
+  var Component = (typeof ${componentName} !== "undefined") ? ${componentName} : null;
+  if (!Component) {
+    throw new Error("Component '${componentName}' was not found. Make sure the generated file defines function ${componentName}().");
+  }
+  if (!window.ReactDOM || !ReactDOM.createRoot) {
+    throw new Error("ReactDOM.createRoot is unavailable.");
+  }
+  ReactDOM.createRoot(rootEl).render(React.createElement(Component));
+})();
 `.trim();
 
-  const executableCode = `${cleanCode}\n\n${mountSnippet}`;
+  const sourceJson = JSON.stringify(reactCode);
+  const execJson = JSON.stringify(executableCode);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SketchUI Preview</title>
+  <title>SketchUI React Preview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
-    body { margin: 0; font-family: system-ui, sans-serif; background: #fff; }
+    html, body { margin: 0; min-height: 100%; background: #f8fafc; font-family: "Plus Jakarta Sans", Inter, system-ui, sans-serif; }
     #preview-bar {
       position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
-      height: 44px; background: #111; color: white;
+      height: 44px; background: #0f172a; color: white;
       display: flex; align-items: center; padding: 0 16px; gap: 12px;
-      font-family: sans-serif; font-size: 13px;
+      font-size: 13px; box-shadow: 0 1px 0 rgba(255,255,255,0.06);
     }
     #preview-bar button {
       padding: 4px 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 12px;
+      background: #1e293b; color: #e2e8f0;
     }
+    #preview-bar button:hover { background: #334155; }
     #app { margin-top: 44px; min-height: calc(100vh - 44px); }
-    #viewport-container { transition: max-width 0.3s ease; margin: 0 auto; }
+    #viewport-container { transition: max-width 0.3s ease; margin: 0 auto; background: #fff; min-height: calc(100vh - 44px); }
     #loading-msg {
       display: flex; align-items: center; justify-content: center;
-      min-height: calc(100vh - 44px); color: #666; font-size: 14px;
+      min-height: calc(100vh - 44px); color: #64748b; font-size: 14px; gap: 8px;
     }
     #error-msg {
       display: none; padding: 24px; margin: 20px;
       background: #1a0000; border: 1px solid #dc2626; border-radius: 8px;
-      color: #fca5a5; font-size: 13px; white-space: pre-wrap; font-family: monospace;
+      color: #fca5a5; font-size: 13px; white-space: pre-wrap; font-family: ui-monospace, monospace;
     }
   </style>
 </head>
 <body>
   <div id="preview-bar">
-    <span style="color:#888">✨ SketchUI Preview</span>
+    <span style="color:#94a3b8">✨ SketchUI React Preview</span>
     <div style="display:flex;gap:6px;margin-left:16px">
-      <button type="button" onclick="setViewport('100%')" style="background:#333;color:white">🖥 Desktop</button>
-      <button type="button" onclick="setViewport('768px')" style="background:#333;color:white">📱 Tablet</button>
-      <button type="button" onclick="setViewport('375px')" style="background:#333;color:white">📲 Mobile</button>
+      <button type="button" onclick="setViewport('100%')">🖥 Desktop</button>
+      <button type="button" onclick="setViewport('768px')">📱 Tablet</button>
+      <button type="button" onclick="setViewport('375px')">📲 Mobile</button>
     </div>
     <div style="margin-left:auto;display:flex;gap:6px">
-      <button type="button" onclick="copyCode()" style="background:#333;color:white">Copy Code</button>
-      <button type="button" onclick="downloadHTML()" style="background:#2563EB;color:white">⬇ Download .html</button>
+      <button type="button" onclick="copyCode()">Copy Code</button>
+      <button type="button" onclick="downloadCode()" style="background:#2563eb;color:#fff">⬇ Download</button>
     </div>
   </div>
 
   <div id="app">
     <div id="viewport-container">
-      <div id="root"><div id="loading-msg">Loading preview...</div></div>
+      <div id="root"><div id="loading-msg">Loading React + Tailwind…</div></div>
     </div>
   </div>
   <div id="error-msg"></div>
 
   <script>
-    const SOURCE_CODE = ${JSON.stringify(reactCode)};
+    const SOURCE_CODE = ${sourceJson};
 
     function setViewport(width) {
       document.getElementById("viewport-container").style.maxWidth = width;
-      document.getElementById("app").style.background = width === "100%" ? "" : "#e5e7eb";
+      document.getElementById("app").style.background = width === "100%" ? "" : "#e2e8f0";
       document.getElementById("app").style.padding = width === "100%" ? "" : "20px";
     }
 
@@ -118,10 +154,10 @@ __root.render(React.createElement(__Component));
       navigator.clipboard.writeText(SOURCE_CODE).then(function() { alert("Copied!"); });
     }
 
-    function downloadHTML() {
+    function downloadCode() {
       var a = document.createElement("a");
-      a.href = "data:text/html," + encodeURIComponent(document.documentElement.outerHTML);
-      a.download = "sketchui-component.html";
+      a.href = URL.createObjectURL(new Blob([SOURCE_CODE], { type: "text/plain" }));
+      a.download = "GeneratedComponent.jsx";
       a.click();
     }
 
@@ -147,7 +183,7 @@ __root.render(React.createElement(__Component));
           if (done) return;
           done = true;
           reject(new Error("Timed out loading: " + src));
-        }, timeoutMs || 20000);
+        }, timeoutMs || 25000);
 
         var s = document.createElement("script");
         s.src = src;
@@ -170,26 +206,41 @@ __root.render(React.createElement(__Component));
 
     async function bootstrap() {
       try {
-        await loadScript("https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.development.js");
-        await loadScript("https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.development.js");
-        await loadScript("https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.0/babel.min.js");
+        await loadScript("https://unpkg.com/react@18.3.1/umd/react.development.js");
+        await loadScript("https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js");
+        await loadScript("https://unpkg.com/@babel/standalone@7.26.0/babel.min.js");
 
-        // Tailwind is optional — don't block preview on it
-        loadScript("https://cdn.tailwindcss.com", 12000).catch(function(err) {
-          console.warn("Tailwind CDN skipped:", err.message);
-        });
+        // Tailwind MUST be ready before first paint of utilities
+        await loadScript("https://cdn.tailwindcss.com");
+        try {
+          if (window.tailwind && typeof window.tailwind.config !== "function") {
+            window.tailwind.config = {
+              theme: {
+                extend: {
+                  fontFamily: {
+                    sans: ["Plus Jakarta Sans", "Inter", "system-ui", "sans-serif"],
+                  },
+                },
+              },
+            };
+          }
+        } catch (_) {}
 
-        if (typeof Babel === "undefined") {
-          throw new Error("Babel failed to initialize.");
-        }
+        // Give the CDN a tick to register the MutationObserver
+        await new Promise(function(r) { setTimeout(r, 80); });
 
-        var userCode = ${JSON.stringify(executableCode)};
+        if (typeof React === "undefined") throw new Error("React failed to load.");
+        if (typeof ReactDOM === "undefined") throw new Error("ReactDOM failed to load.");
+        if (typeof Babel === "undefined") throw new Error("Babel failed to load.");
+
+        var userCode = ${execJson};
         var transformed = Babel.transform(userCode, {
-          presets: ["react"],
-          filename: "component.jsx",
+          presets: [["react", { runtime: "classic" }]],
+          filename: "GeneratedComponent.jsx",
         }).code;
 
         var scriptEl = document.createElement("script");
+        scriptEl.type = "text/javascript";
         scriptEl.textContent = transformed;
         document.body.appendChild(scriptEl);
       } catch (err) {
@@ -207,6 +258,13 @@ export function openReactPreviewInNewTab(reactCode: string, componentNameHint?: 
   const html = buildReactPreviewHtml(reactCode, componentNameHint);
   const blob = new Blob([html], { type: "text/html" });
   const url = URL.createObjectURL(blob);
-  window.open(url, "_blank");
-  setTimeout(() => URL.revokeObjectURL(url), 120000);
+  const win = window.open(url, "_blank");
+  if (!win) {
+    // Popup blocked — fall back to downloading the preview HTML
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "sketchui-react-preview.html";
+    a.click();
+  }
+  setTimeout(() => URL.revokeObjectURL(url), 180000);
 }

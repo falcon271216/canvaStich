@@ -111,7 +111,7 @@ function openPreviewInNewTab(htmlCode: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-import { openReactPreviewInNewTab } from "../../lib/reactPreviewShell";
+import { openReactPreviewInNewTab, cleanReactCodeForPreview } from "../../lib/reactPreviewShell";
 /* ────────────────────── component ────────────────────── */
 
 export default function CodeExportPanel({
@@ -211,7 +211,8 @@ export default function CodeExportPanel({
         throw new Error(errData.error || `HTTP ${res.status}`);
       }
 
-      const { code } = await res.json();
+      const { code: rawCode } = await res.json();
+      const code = framework === "react" ? cleanReactCodeForPreview(rawCode) : rawCode;
       setProgressStep(5);
       await new Promise(r => setTimeout(r, 400));
 
