@@ -469,7 +469,10 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       return;
     }
 
-    const canvasArea = 1600 * 900;
+    const canvasW = Math.max(viewportSize.w || 1600, 1);
+    const canvasH = Math.max(viewportSize.h || 900, 1);
+    const canvasArea = canvasW * canvasH;
+    const canvasSize = { width: canvasW, height: canvasH };
     const shapeIndex = new Map(shapes.map((s, i) => [s.id, i] as const));
 
     // Step 1a: Classify each pencil stroke independently
@@ -478,7 +481,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       if (!path || path.length < 5) {
         return null;
       }
-      const result = classifyUIComponent([path], canvasArea);
+      const result = classifyUIComponent([path], canvasArea, canvasSize);
       return {
         id: `comp_${idx}`,
         type: result.type,
@@ -522,7 +525,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       }
       // Re-classify the merged strokes
       const allStrokes = group.components.flatMap(c => c.strokes);
-      const result = classifyUIComponent(allStrokes, canvasArea);
+      const result = classifyUIComponent(allStrokes, canvasArea, canvasSize);
       return {
         id: `merged_${gIdx}`,
         type: result.type,
@@ -589,7 +592,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
       );
       if (match) setSelectedComponentId(match.id);
     }
-  }, [shapes]);
+  }, [shapes, viewportSize.w, viewportSize.h]);
 
   // Debounce pipeline runs
   useEffect(() => {

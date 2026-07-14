@@ -176,7 +176,7 @@ export const UI_COMPONENT_HINTS: Record<UIComponentType, ComponentHint> = {
     typicalSize: 'large',
   },
   navbar: {
-    typicalAspectRatio: [6, 30],
+    typicalAspectRatio: [5, 40],
     typicalStrokeCount: [1, 3],
     closureLikelihood: 'high',
     typicalSize: 'large',
@@ -231,10 +231,11 @@ export const UI_COMPONENT_HINTS: Record<UIComponentType, ComponentHint> = {
     typicalSize: 'small',
   },
   search_bar: {
-    typicalAspectRatio: [3, 12],
+    // Compact field only — not page-wide bars
+    typicalAspectRatio: [2.5, 10],
     typicalStrokeCount: [2, 4],
     closureLikelihood: 'high',
-    typicalSize: 'medium',
+    typicalSize: 'small',
   },
   rating: {
     typicalAspectRatio: [0.7, 1.5],

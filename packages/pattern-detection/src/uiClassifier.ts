@@ -74,6 +74,8 @@ function getUITemplates(): UITemplate[] {
 function scoreHeuristic(features: StrokeFeatureVector, bbox: BoundingBox): Map<UIComponentType, number> {
   const scores = new Map<UIComponentType, number>();
   const maxDim = Math.max(bbox.width, bbox.height);
+  const { width, height } = bbox;
+  const area = width * height;
 
   for (const label of UI_COMPONENT_LABELS) {
     const hints = UI_COMPONENT_HINTS[label];
@@ -82,56 +84,83 @@ function scoreHeuristic(features: StrokeFeatureVector, bbox: BoundingBox): Map<U
     // 1. Aspect ratio match (with ratio-based deviation penalty)
     const [arMin, arMax] = hints.typicalAspectRatio;
     if (features.aspectRatio >= arMin && features.aspectRatio <= arMax) {
-      score += 0.4;
+      score += 0.35;
     } else {
       const devRatio = features.aspectRatio > arMax
         ? features.aspectRatio / arMax
         : arMin / features.aspectRatio;
-      score += Math.max(0, 0.4 - (devRatio - 1.0) * 0.4);
+      score += Math.max(0, 0.35 - (devRatio - 1.0) * 0.4);
     }
 
     // 2. Stroke count match
     const [scMin, scMax] = hints.typicalStrokeCount;
     if (features.strokeCount >= scMin && features.strokeCount <= scMax) {
-      score += 0.2;
+      score += 0.15;
     } else if (features.strokeCount <= scMax + 1) {
-      score += 0.1;
+      score += 0.08;
     }
 
     // 3. Closure match
     if (hints.closureLikelihood === 'high' && features.closureScore > 0.6) {
-      score += 0.2;
-    } else if (hints.closureLikelihood === 'medium' && features.closureScore > 0.3) {
       score += 0.15;
+    } else if (hints.closureLikelihood === 'medium' && features.closureScore > 0.3) {
+      score += 0.12;
     } else if (hints.closureLikelihood === 'low' && features.closureScore < 0.4) {
-      score += 0.2;
+      score += 0.15;
     } else {
-      score += 0.05;
+      score += 0.04;
     }
 
-    // 4. Size match (using absolute max dimension in world coordinates)
-    const isSmall = maxDim < 60;
-    const isMedium = maxDim >= 60 && maxDim <= 240;
-    const isLarge = maxDim > 240;
+    // 4. Size match — stronger weight so big ≠ search bar
+    // small: compact widgets; medium: forms/buttons; large: layout bands/containers
+    const isSmall = maxDim < 80 && area < 18_000;
+    const isMedium = !isSmall && maxDim <= 320 && area < 80_000;
+    const isLarge = area >= 80_000 || width > 450 || maxDim > 320;
 
     let sizeScore = 0;
     if (hints.typicalSize === 'small' && isSmall) {
-      sizeScore = 0.2;
+      sizeScore = 0.35;
     } else if (hints.typicalSize === 'medium' && isMedium) {
-      sizeScore = 0.2;
+      sizeScore = 0.3;
     } else if (hints.typicalSize === 'large' && isLarge) {
-      sizeScore = 0.2;
+      sizeScore = 0.35;
     } else {
-      // Partial credit for adjacent sizes
       if (hints.typicalSize === 'medium' && (isSmall || isLarge)) {
-        sizeScore = 0.08;
+        sizeScore = 0.06;
       } else if (hints.typicalSize === 'small' && isMedium) {
-        sizeScore = 0.05;
+        sizeScore = 0.04;
       } else if (hints.typicalSize === 'large' && isMedium) {
-        sizeScore = 0.05;
+        sizeScore = 0.08;
+      } else {
+        sizeScore = 0; // hard size mismatch
       }
     }
     score += sizeScore;
+
+    // 4b. Absolute geometry gates for common mislabels
+    if (label === 'search_bar') {
+      // Search is a compact control — never a page-wide / tall rectangle
+      if (height > 56 || width > 420 || area > 22_000 || features.strokeCount < 2) {
+        score -= 0.55;
+      } else if (height <= 48 && width >= 120 && width <= 380) {
+        score += 0.15;
+      }
+    }
+    if (label === 'navbar' || label === 'footer') {
+      if (width >= 320 && height <= 120 && features.aspectRatio >= 4) {
+        score += 0.25;
+      } else if (width < 250 || height > 180) {
+        score -= 0.25;
+      }
+    }
+    if (label === 'input_field') {
+      if (height <= 56 && width >= 140 && width <= 480 && features.strokeCount <= 2) {
+        score += 0.12;
+      }
+      if (width > 520 || height > 70) {
+        score -= 0.2;
+      }
+    }
 
     // 5. Shape Style / Circularity check
     const isCircularComponent = (label === 'radio' || label === 'avatar');
@@ -145,7 +174,8 @@ function scoreHeuristic(features: StrokeFeatureVector, bbox: BoundingBox): Map<U
       label === 'footer' ||
       label === 'modal' ||
       label === 'container_box' ||
-      label === 'image_placeholder'
+      label === 'image_placeholder' ||
+      label === 'search_bar'
     );
 
     if (isCircularComponent) {
@@ -171,8 +201,8 @@ function scoreHeuristic(features: StrokeFeatureVector, bbox: BoundingBox): Map<U
       score += 0.1;
     }
 
-    // Normalize score to [0, 1] (max possible points is 1.15)
-    scores.set(label, Math.max(0, score / 1.15));
+    // Normalize score to [0, 1]
+    scores.set(label, Math.max(0, score / 1.35));
   }
 
   return scores;
@@ -218,36 +248,50 @@ function geometricOverrideClassifier(
   bboxResult: BoundingBox,
   features: StrokeFeatureVector,
   allPoints: Point[],
+  canvasWidth: number,
+  canvasHeight: number,
 ): { type: UIComponentType; confidence: number } | null {
-  const { width, height } = bboxResult;
+  const { width, height, x, y } = bboxResult;
   const aspectRatio = height > 0 ? width / height : width > 0 ? 100 : 1;
   const area = width * height;
   const closureScore = features.closureScore;
   const pointCount = allPoints.length;
+  const widthFrac = canvasWidth > 0 ? width / canvasWidth : 0;
+  const centerYFrac = canvasHeight > 0 ? (y + height / 2) / canvasHeight : 0.5;
 
   // Closed shapes (closureScore high = shape is closed)
   if (closureScore > 0.5) {
-    // Very wide, thin → navbar
-    if (aspectRatio > 3.0 && height < 80 && width > 200) {
-      return { type: 'navbar', confidence: 0.75 };
+    // Page-wide horizontal band → navbar (top) or footer (bottom)
+    if (aspectRatio >= 4 && height <= 130 && (width >= 280 || widthFrac >= 0.45)) {
+      if (centerYFrac >= 0.72) {
+        return { type: 'footer', confidence: 0.86 };
+      }
+      return { type: 'navbar', confidence: 0.86 };
     }
 
-    // Wide rectangle → input field (if wide) or button (if narrower)
-    if (aspectRatio > 2.0 && area < 18000) {
-      if (width >= 180) {
-        return { type: 'input_field', confidence: 0.72 };
-      } else {
-        return { type: 'button', confidence: 0.72 };
-      }
+    // Compact search: small height + medium width + preferably multi-stroke (icon)
+    if (
+      height <= 52 &&
+      width >= 120 &&
+      width <= 400 &&
+      area <= 20_000 &&
+      features.strokeCount >= 2
+    ) {
+      return { type: 'search_bar', confidence: 0.78 };
+    }
+
+    // Wide thin single stroke → input (not search)
+    if (aspectRatio > 2.0 && height <= 56 && width >= 140 && width <= 480 && area < 22_000) {
+      return { type: 'input_field', confidence: 0.74 };
     }
 
     // Medium-wide, small → button
-    if (aspectRatio > 1.5 && area < 8000) {
+    if (aspectRatio > 1.5 && area < 8000 && width < 180) {
       return { type: 'button', confidence: 0.72 };
     }
 
     // Larger, moderately wide → card
-    if (aspectRatio > 0.5 && aspectRatio < 2.5 && area > 20000) {
+    if (aspectRatio > 0.5 && aspectRatio < 2.5 && area > 20000 && area < 80_000) {
       return { type: 'card', confidence: 0.68 };
     }
 
@@ -307,6 +351,76 @@ function geometricOverrideClassifier(
   return null; // no strong geometric signal
 }
 
+/**
+ * Hard size/placement correction. DTW is size-invariant, so big rectangles
+ * often mislabel as search_bar — remap using real sketch dimensions.
+ */
+function refineLabelBySize(
+  type: UIComponentType,
+  confidence: number,
+  bbox: BoundingBox,
+  features: StrokeFeatureVector,
+  canvasWidth: number,
+  canvasHeight: number,
+): { type: UIComponentType; confidence: number } {
+  const { width, height, x, y } = bbox;
+  const area = width * height;
+  const aspect = height > 0 ? width / height : width;
+  const widthFrac = canvasWidth > 0 ? width / canvasWidth : 0;
+  const centerYFrac = canvasHeight > 0 ? (y + height / 2) / canvasHeight : 0.5;
+  const isWideBand =
+    aspect >= 4 &&
+    height <= 140 &&
+    (width >= 280 || widthFrac >= 0.45);
+
+  // Wide page band → header / footer (never search)
+  if (isWideBand) {
+    // Taller bands feel like footers; top-of-canvas bands like headers.
+    // Prefer vertical placement when canvas coords are reliable; else use height.
+    if (centerYFrac >= 0.68 || (height >= 72 && centerYFrac >= 0.45)) {
+      return { type: 'footer', confidence: Math.max(confidence, 0.84) };
+    }
+    return { type: 'navbar', confidence: Math.max(confidence, 0.84) };
+  }
+
+  // Oversized "search_bar" corrections
+  if (type === 'search_bar') {
+    const tooTall = height > 56;
+    const tooWide = width > 420 || widthFrac > 0.55;
+    const tooBig = area > 22_000;
+    const singleStroke = features.strokeCount < 2;
+
+    if (tooTall || tooWide || tooBig) {
+      if (aspect >= 3.5 && (width >= 280 || widthFrac >= 0.4) && height <= 140) {
+        if (height >= 72 || centerYFrac >= 0.68) {
+          return { type: 'footer', confidence: 0.82 };
+        }
+        return { type: 'navbar', confidence: 0.82 };
+      }
+      if (area > 50_000) {
+        return { type: 'container_box', confidence: 0.75 };
+      }
+      if (aspect >= 2 && height <= 70) {
+        return { type: 'input_field', confidence: 0.78 };
+      }
+      return { type: 'container_box', confidence: 0.7 };
+    }
+
+    // Lone rectangle without magnifier stroke → prefer input field
+    if (singleStroke && height <= 56 && width >= 140) {
+      return { type: 'input_field', confidence: 0.76 };
+    }
+  }
+
+  // Navbar misplaced as input when it's actually a full-width header
+  if ((type === 'input_field' || type === 'button') && isWideBand) {
+    if (height >= 72 || centerYFrac >= 0.68) return { type: 'footer', confidence: 0.8 };
+    return { type: 'navbar', confidence: 0.8 };
+  }
+
+  return { type, confidence };
+}
+
 /* ────────────────────── main classifier ────────────────────── */
 
 /**
@@ -315,15 +429,17 @@ function geometricOverrideClassifier(
  * Uses a three-tier approach:
  *  1. DTW + heuristic ensemble (primary)
  *  2. Geometric override (fallback when ensemble confidence < 0.6)
- *  3. Default to container_box (last resort)
+ *  3. Size/placement refinement (always) — big rect ≠ search bar
  *
  * @param strokes    Array of stroke point arrays.
  * @param canvasArea Canvas width × height for area normalisation.
+ * @param canvasSize Optional real canvas size for position-aware labels.
  * @returns Detection result with type, confidence, and all scores.
  */
 export function classifyUIComponent(
   strokes: Point[][],
   canvasArea: number,
+  canvasSize?: { width: number; height: number },
 ): UIDetectionResult {
   const allPoints = strokes.flat();
   const bbox = boundingBox(allPoints);
@@ -333,6 +449,13 @@ export function classifyUIComponent(
     width: bbox.maxX - bbox.minX,
     height: bbox.maxY - bbox.minY,
   };
+
+  const canvasWidth =
+    canvasSize?.width ??
+    (canvasArea > 0 ? Math.sqrt(canvasArea * (16 / 9)) : 1600);
+  const canvasHeight =
+    canvasSize?.height ??
+    (canvasArea > 0 ? Math.sqrt(canvasArea * (9 / 16)) : 900);
 
   if (allPoints.length < 3) {
     return {
@@ -354,45 +477,56 @@ export function classifyUIComponent(
   const normalized = normalizePath(allPoints, TMPL_POINTS, TMPL_SIZE);
   const dtwScores = scoreDTW(normalized);
 
-  // Combine: 0.6 * heuristic + 0.4 * DTW
+  // Combine: lean harder on size-aware heuristics (DTW ignores absolute size)
   const combined = new Map<UIComponentType, number>();
   for (const label of UI_COMPONENT_LABELS) {
     const hScore = heuristicScores.get(label) ?? 0;
     const dScore = dtwScores.get(label) ?? 0;
-    combined.set(label, 0.6 * hScore + 0.4 * dScore);
+    combined.set(label, 0.7 * hScore + 0.3 * dScore);
   }
 
   // Sort by combined score
   const sorted = [...combined.entries()].sort((a, b) => b[1] - a[1]);
   const allScores = sorted.map(([type, score]) => ({ type, score }));
 
-  const bestLabel = sorted[0]?.[0] ?? 'container_box';
-  const bestScore = sorted[0]?.[1] ?? 0;
+  let bestLabel = sorted[0]?.[0] ?? 'container_box';
+  let bestScore = sorted[0]?.[1] ?? 0;
+  let method: UIDetectionResult['method'] = 'ensemble';
 
   // If ensemble confidence is low, try the geometric override classifier
   if (bestScore < 0.6) {
-    const geoOverride = geometricOverrideClassifier(bboxResult, features, allPoints);
+    const geoOverride = geometricOverrideClassifier(
+      bboxResult,
+      features,
+      allPoints,
+      canvasWidth,
+      canvasHeight,
+    );
     if (geoOverride) {
-      return {
-        type: geoOverride.type,
-        confidence: geoOverride.confidence,
-        boundingBox: bboxResult,
-        method: 'heuristic',
-        allScores,
-      };
+      bestLabel = geoOverride.type;
+      bestScore = geoOverride.confidence;
+      method = 'heuristic';
     }
+  } else {
+    const hBest = heuristicScores.get(bestLabel) ?? 0;
+    const dBest = dtwScores.get(bestLabel) ?? 0;
+    if (hBest > dBest * 1.5) method = 'heuristic';
+    else if (dBest > hBest * 1.5) method = 'dtw';
   }
 
-  // Determine method
-  const hBest = heuristicScores.get(bestLabel) ?? 0;
-  const dBest = dtwScores.get(bestLabel) ?? 0;
-  let method: UIDetectionResult['method'] = 'ensemble';
-  if (hBest > dBest * 1.5) method = 'heuristic';
-  else if (dBest > hBest * 1.5) method = 'dtw';
+  // Always apply absolute-size correction (fixes big-rect → search_bar)
+  const refined = refineLabelBySize(
+    bestLabel,
+    bestScore,
+    bboxResult,
+    features,
+    canvasWidth,
+    canvasHeight,
+  );
 
   return {
-    type: bestLabel,
-    confidence: Math.min(1, bestScore),
+    type: refined.type,
+    confidence: Math.min(1, refined.confidence),
     boundingBox: bboxResult,
     method,
     allScores,
@@ -405,9 +539,10 @@ export function classifyUIComponent(
 export function classifyMultiple(
   componentGroups: { id: string; strokes: Point[][] }[],
   canvasArea: number,
+  canvasSize?: { width: number; height: number },
 ): (UIDetectionResult & { id: string })[] {
   return componentGroups.map((group) => ({
     id: group.id,
-    ...classifyUIComponent(group.strokes, canvasArea),
+    ...classifyUIComponent(group.strokes, canvasArea, canvasSize),
   }));
 }

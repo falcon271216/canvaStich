@@ -344,15 +344,16 @@ function generateAvatarStroke(): Point[][] {
 }
 
 function generateSearchBarStroke(): Point[][] {
-  const w = rand(180, 350);
-  const h = rand(28, 45);
+  // Compact control only — DTW templates must stay small vs navbar/footer
+  const w = rand(140, 280);
+  const h = rand(26, 42);
   const x = rand(50, 300);
   const y = rand(50, 400);
   // Rectangle
   const box = rectanglePath(x, y, w, h, 12);
   const strokes: Point[][] = [addNoise(addTimestamps(box, rand(800, 1800)), rand(2, 4))];
   // Magnifying glass circle (left side)
-  const iconR = h * 0.2;
+  const iconR = h * 0.22;
   const icx = x + 16;
   const icy = y + h / 2;
   const lens = circlePath(icx, icy, iconR, 12);
