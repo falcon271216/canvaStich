@@ -786,9 +786,9 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
-    handleTouchStart,
-    handleTouchMove,
-    handleTouchEnd,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
     renderCanvas,
     liveDetection,
     eraserPreview,
@@ -830,7 +830,13 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     onShapeCompleted: handleShapeCompleted,
   });
 
-  /* ── Combined mouse move handler (canvas drawing + cursor broadcast) ── */
+  /* ── Combined pointer/mouse move (canvas drawing + cursor broadcast) ── */
+  const combinedPointerMove = useCallback((e: React.PointerEvent) => {
+    handlePointerMove(e);
+    // Broadcast cursor for collaborative presence
+    handleCanvasMouseMove(e as unknown as React.MouseEvent);
+  }, [handlePointerMove, handleCanvasMouseMove]);
+
   const combinedMouseMove = useCallback((e: React.MouseEvent) => {
     handleMouseMove(e);
     handleCanvasMouseMove(e);
@@ -1549,25 +1555,40 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
                       ? "default"
                       : "crosshair",
               }}
+              onPointerDown={(e) => {
+                if (shouldPan(e)) return;
+                if (tool === "select") return;
+                if (selectedComponentId) setSelectedComponentId(null);
+                handlePointerDown(e);
+              }}
+              onPointerMove={combinedPointerMove}
+              onPointerUp={(e) => {
+                if (shouldPan(e)) return;
+                handlePointerUp(e);
+              }}
+              onPointerCancel={handlePointerUp}
               onMouseDown={(e) => {
+                // Pointer Events cover modern browsers; keep mouse fallback for older desktop only
+                if (typeof window !== "undefined" && window.PointerEvent) return;
                 if (shouldPan(e)) return;
                 if (tool === "select") return;
                 if (selectedComponentId) setSelectedComponentId(null);
                 handleMouseDown(e);
               }}
               onMouseUp={(e) => {
+                if (typeof window !== "undefined" && window.PointerEvent) return;
                 if (shouldPan(e)) return;
                 handleMouseUp(e);
               }}
               onMouseLeave={(e) => {
+                if (typeof window !== "undefined" && window.PointerEvent) return;
                 if (tool !== "eraser") handleMouseUp(e);
               }}
-              onMouseMove={combinedMouseMove}
+              onMouseMove={(e) => {
+                if (typeof window !== "undefined" && window.PointerEvent) return;
+                combinedMouseMove(e);
+              }}
               onDoubleClick={handleCanvasDoubleClick}
-              onTouchStart={handleTouchStart}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              onTouchCancel={handleTouchEnd}
             />
 
             <div

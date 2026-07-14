@@ -21,6 +21,7 @@ export default function RoomsPage() {
   const [joinRoomId, setJoinRoomId] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [joining, setJoining] = useState(false);
 
   useEffect(() => {
     const t = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -56,15 +57,43 @@ export default function RoomsPage() {
     }
   };
 
-  const handleJoinRoom = (e: React.FormEvent) => {
+  const handleJoinRoom = async (e: React.FormEvent) => {
     e.preventDefault();
     const id = joinRoomId.trim();
     if (!id) return;
     const t = token ?? localStorage.getItem("token");
-    if (t) {
-      window.location.href = `/draw?room=${id}&token=${encodeURIComponent(t)}`;
-    } else {
+    if (!t) {
       window.location.href = `/draw?room=${id}`;
+      return;
+    }
+
+    const roomId = Number(id);
+    if (!Number.isFinite(roomId) || roomId <= 0) {
+      setError("Enter a valid room number.");
+      return;
+    }
+
+    setError("");
+    setJoining(true);
+    try {
+      const res = await fetch(`${API}/rooms/${roomId}`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 404 || data.code === "ROOM_NOT_FOUND") {
+        throw new Error("This room does not exist.");
+      }
+      if (res.status === 403 || data.code === "ROOM_FORBIDDEN") {
+        throw new Error(data.error || "You do not have access to this room.");
+      }
+      if (!res.ok) {
+        throw new Error(data.error || "Unable to join room.");
+      }
+      window.location.href = `/draw?room=${roomId}&token=${encodeURIComponent(t)}`;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to join room.");
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -171,10 +200,17 @@ export default function RoomsPage() {
               <button
                 type="submit"
                 className="primary"
+                disabled={joining || !token}
                 style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: "0.4rem" }}
               >
-                <ArrowRight size={15} />
-                Join room
+                {joining ? (
+                  "Checking room…"
+                ) : (
+                  <>
+                    <ArrowRight size={15} />
+                    Join room
+                  </>
+                )}
               </button>
             </form>
           </div>

@@ -518,28 +518,34 @@ export function useCanvasManager({
 
   renderCanvasRef.current = renderCanvas;
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (tool === "select") return;
-    const pos = getPos(e);
+  const drawPointerId = useRef<number | null>(null);
+
+  const beginStrokeAt = useCallback((pos: Point) => {
+    if (toolRef.current === "select") return;
     startRef.current = pos;
     isDrawing.current = true;
 
-    if (tool === "eraser") {
+    if (toolRef.current === "eraser") {
       erasedThisStrokeRef.current.clear();
     }
 
-    if (tool === "pencil") {
+    if (toolRef.current === "pencil") {
       pencilPath.current = [pos];
       slidingDetector.current.reset();
       slidingDetector.current.addPoint(pos);
       setLiveDetection(null);
     }
-  }, [tool]);
+  }, []);
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (tool === "select") return;
+    beginStrokeAt(getPos(e));
+  }, [tool, beginStrokeAt]);
+
+  const continueStrokeAt = useCallback((pos: Point) => {
     if (!isDrawing.current) return;
-    const pos = getPos(e);
     const start = startRef.current;
+    const tool = toolRef.current;
 
     if (tool === "pencil") {
       pencilPath.current.push(pos);
@@ -576,40 +582,44 @@ export function useCanvasManager({
       applyCameraTransform(ctx, viewportStateRef.current);
 
       if (tool === "rectangle") {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
+        ctx.strokeStyle = colorRef.current;
+        ctx.lineWidth = strokeWidthRef.current;
         ctx.strokeRect(start.x, start.y, pos.x - start.x, pos.y - start.y);
       } else if (tool === "circle") {
         const cx = (start.x + pos.x) / 2;
         const cy = (start.y + pos.y) / 2;
         const rx = Math.abs(pos.x - start.x) / 2;
         const ry = Math.abs(pos.y - start.y) / 2;
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
+        ctx.strokeStyle = colorRef.current;
+        ctx.lineWidth = strokeWidthRef.current;
         ctx.beginPath();
         ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
         ctx.stroke();
       } else if (tool === "line") {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
+        ctx.strokeStyle = colorRef.current;
+        ctx.lineWidth = strokeWidthRef.current;
         ctx.beginPath();
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
       } else if (tool === "arrow") {
-        ctx.strokeStyle = color;
-        ctx.lineWidth = strokeWidth;
+        ctx.strokeStyle = colorRef.current;
+        ctx.lineWidth = strokeWidthRef.current;
         ctx.lineCap = "round";
         ctx.beginPath();
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(pos.x, pos.y);
         ctx.stroke();
-        drawArrowHead(ctx, start.x, start.y, pos.x, pos.y, strokeWidth);
+        drawArrowHead(ctx, start.x, start.y, pos.x, pos.y, strokeWidthRef.current);
       }
     }
-  }, [tool, color, strokeWidth, renderCanvas, canvasRef, performErase]);
+  }, [renderCanvas, canvasRef, performErase]);
 
-  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    continueStrokeAt(getPos(e));
+  }, [continueStrokeAt]);
+
+  const endStrokeAt = useCallback((end: Point) => {
     if (!isDrawing.current) return;
     isDrawing.current = false;
 
@@ -617,7 +627,9 @@ export function useCanvasManager({
     startRef.current = null;
     if (!start) return;
 
-    const end = getPos(e);
+    const tool = toolRef.current;
+    const color = colorRef.current;
+    const strokeWidth = strokeWidthRef.current;
 
     if (tool === "eraser") {
       finishEraserStroke(start, end);
@@ -663,12 +675,16 @@ export function useCanvasManager({
     if (tool === "pencil") {
       const shapeId = createShapeId();
       const capturedPath = [...pencilPath.current];
+      if (capturedPath.length < 2) {
+        setLiveDetection(null);
+        slidingDetector.current.reset();
+        return;
+      }
       const pathData = { path: capturedPath, stroke: color, lineWidth: strokeWidth };
       onSendDrawEventAction(tool, pathData, shapeId);
 
       if (capturedPath.length >= 8) {
-        // ── UI component auto-completion (runs first, has priority) ──
-        import("@repo/pattern-detection").then(({ classifyUIComponent, boundingBox }) => {
+        import("@repo/pattern-detection").then(({ classifyUIComponent }) => {
           const canvasEl = canvasRef.current;
           const canvasArea = canvasEl ? canvasEl.width * canvasEl.height : 1600 * 900;
           const result = classifyUIComponent([capturedPath], canvasArea);
@@ -688,11 +704,9 @@ export function useCanvasManager({
               w: result.boundingBox.width,
               h: result.boundingBox.height,
             });
-            // Skip geometric completion since UI wireframe will replace the stroke
             return;
           }
 
-          // ── Fallback: geometric + ML completion (basic shapes) ──
           import("../lib/ml").then(({ predictPattern }) => {
             predictPattern(capturedPath).then((mlPredictions) => {
               const geoResult = detectShape(capturedPath);
@@ -734,11 +748,54 @@ export function useCanvasManager({
           });
         });
       }
-
       setLiveDetection(null);
       slidingDetector.current.reset();
     }
-  }, [tool, color, strokeWidth, onSendDrawEventAction, finishEraserStroke]);
+  }, [finishEraserStroke, onSendDrawEventAction, canvasRef, onShapeCompleted]);
+
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    endStrokeAt(getPos(e));
+  }, [endStrokeAt]);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (toolRef.current === "select") return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Non-primary = second finger → abandon stroke so pinch-zoom can take over
+    if (e.pointerType !== "mouse" && !e.isPrimary) {
+      isDrawing.current = false;
+      startRef.current = null;
+      pencilPath.current = [];
+      drawPointerId.current = null;
+      setLiveDetection(null);
+      setEraserPreview(null);
+      renderCanvasRef.current();
+      return;
+    }
+    e.preventDefault();
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch { /* ignore */ }
+    drawPointerId.current = e.pointerId;
+    beginStrokeAt(getPosFromClient(e.clientX, e.clientY));
+  }, [beginStrokeAt]);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+    if (drawPointerId.current !== null && e.pointerId !== drawPointerId.current) return;
+    if (!isDrawing.current) return;
+    e.preventDefault();
+    continueStrokeAt(getPosFromClient(e.clientX, e.clientY));
+  }, [continueStrokeAt]);
+
+  const handlePointerUp = useCallback((e: React.PointerEvent) => {
+    if (drawPointerId.current !== null && e.pointerId !== drawPointerId.current) return;
+    drawPointerId.current = null;
+    try {
+      if ((e.currentTarget as HTMLElement).hasPointerCapture?.(e.pointerId)) {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      }
+    } catch { /* ignore */ }
+    endStrokeAt(getPosFromClient(e.clientX, e.clientY));
+  }, [endStrokeAt]);
 
   /* ── Touch event handlers (mobile/tablet) ── */
 
@@ -926,13 +983,14 @@ export function useCanvasManager({
 
   /* Finish eraser drag even when pointer leaves the canvas */
   useEffect(() => {
-    const onWindowMouseUp = (e: MouseEvent) => {
+    const onWindowPointerUp = (e: PointerEvent | MouseEvent) => {
       if (!isDrawing.current || toolRef.current !== "eraser") return;
       const start = startRef.current;
       if (!start) return;
 
       isDrawing.current = false;
       startRef.current = null;
+      drawPointerId.current = null;
 
       const end = getPosFromClient(e.clientX, e.clientY);
       performErase(start, end);
@@ -940,9 +998,13 @@ export function useCanvasManager({
       renderCanvasRef.current();
     };
 
-    window.addEventListener("mouseup", onWindowMouseUp);
-    return () => window.removeEventListener("mouseup", onWindowMouseUp);
-  }, [canvasRef, performErase, viewportRef]);
+    window.addEventListener("pointerup", onWindowPointerUp);
+    window.addEventListener("mouseup", onWindowPointerUp);
+    return () => {
+      window.removeEventListener("pointerup", onWindowPointerUp);
+      window.removeEventListener("mouseup", onWindowPointerUp);
+    };
+  }, [performErase]);
 
   useEffect(() => {
     if (tool !== "eraser") {
@@ -954,6 +1016,9 @@ export function useCanvasManager({
     handleMouseDown,
     handleMouseUp,
     handleMouseMove,
+    handlePointerDown,
+    handlePointerMove,
+    handlePointerUp,
     handleTouchStart,
     handleTouchMove,
     handleTouchEnd,

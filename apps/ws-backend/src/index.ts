@@ -137,7 +137,8 @@ wss.on("connection", async (ws, request) => {
         const rId = Number(roomId);
         if (isNaN(rId)) return ws.close();
 
-        // Security check: Validate room permission
+        // Security check: Validate room exists + permission
+        let roomExists = false;
         let hasAccess = false;
         try {
           const room = await getPrisma().room.findUnique({
@@ -149,21 +150,30 @@ wss.on("connection", async (ws, request) => {
             }
           });
 
-          if (room) {
-            if (room.adminId === userId) {
-              hasAccess = true;
-            } else if (room.members.length > 0) {
-              hasAccess = true;
-            } else {
-              const projects = await getPrisma().project.findMany({
-                where: {
-                  roomId: rId,
-                  workspace: { ownerId: userId }
-                }
-              });
-              if (projects.length > 0) {
-                hasAccess = true;
+          if (!room) {
+            console.warn(`[ws-backend] Room ${rId} does not exist (user ${userId})`);
+            ws.send(JSON.stringify({
+              type: "error",
+              error: "Room does not exist",
+              code: "ROOM_NOT_FOUND",
+            }));
+            return ws.close();
+          }
+
+          roomExists = true;
+          if (room.adminId === userId) {
+            hasAccess = true;
+          } else if (room.members.length > 0) {
+            hasAccess = true;
+          } else {
+            const projects = await getPrisma().project.findMany({
+              where: {
+                roomId: rId,
+                workspace: { ownerId: userId }
               }
+            });
+            if (projects.length > 0) {
+              hasAccess = true;
             }
           }
         } catch (err) {
@@ -171,8 +181,12 @@ wss.on("connection", async (ws, request) => {
         }
 
         if (!hasAccess) {
-          console.warn(`[ws-backend] User ${userId} unauthorized to join room ${rId}`);
-          ws.send(JSON.stringify({ type: "error", error: "Unauthorized access to this room" }));
+          console.warn(`[ws-backend] User ${userId} unauthorized to join room ${rId} (exists=${roomExists})`);
+          ws.send(JSON.stringify({
+            type: "error",
+            error: "Unauthorized access to this room",
+            code: "ROOM_FORBIDDEN",
+          }));
           return ws.close();
         }
 

@@ -19,9 +19,15 @@ export interface ViewportState {
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 5;
 const ZOOM_WHEEL_FACTOR = 1.075;
+/** Larger step for on-screen +/- buttons (tablet-friendly). */
+const ZOOM_BUTTON_FACTOR = 1.25;
 
 function clampZoom(z: number) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
+}
+
+function dist(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 /** Place world origin (0, 0) at the center of the viewport */
@@ -52,6 +58,16 @@ export function useBoardViewport(viewportRef: RefObject<HTMLElement | null>) {
     startY: number;
     scrollX: number;
     scrollY: number;
+  } | null>(null);
+
+  const activePointers = useRef(new Map<number, { x: number; y: number }>());
+  const pinchSession = useRef<{
+    initialDist: number;
+    initialZoom: number;
+    originScrollX: number;
+    originScrollY: number;
+    originMidX: number;
+    originMidY: number;
   } | null>(null);
 
   const hasInitialized = useRef(false);
@@ -125,16 +141,17 @@ export function useBoardViewport(viewportRef: RefObject<HTMLElement | null>) {
     const el = viewportRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, ZOOM_WHEEL_FACTOR);
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, ZOOM_BUTTON_FACTOR);
   }, [viewportRef, zoomAt]);
 
   const zoomOut = useCallback(() => {
     const el = viewportRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1 / ZOOM_WHEEL_FACTOR);
+    zoomAt(rect.left + rect.width / 2, rect.top + rect.height / 2, 1 / ZOOM_BUTTON_FACTOR);
   }, [viewportRef, zoomAt]);
 
+  /* Wheel zoom/pan (desktop + ctrl+trackpad pinch) */
   useEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
@@ -152,6 +169,88 @@ export function useBoardViewport(viewportRef: RefObject<HTMLElement | null>) {
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
   }, [viewportRef, zoomAt, panBy]);
+
+  /* Two-finger pinch zoom + pan (tablet) */
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+
+    const applyPinch = () => {
+      const session = pinchSession.current;
+      if (!session || activePointers.current.size < 2) return;
+      const pts = [...activePointers.current.values()];
+      const a = pts[0]!;
+      const b = pts[1]!;
+      const d = Math.max(1, dist(a, b));
+      const midX = (a.x + b.x) / 2;
+      const midY = (a.y + b.y) / 2;
+      const rect = el.getBoundingClientRect();
+      const mx = midX - rect.left;
+      const my = midY - rect.top;
+      const originMx = session.originMidX - rect.left;
+      const originMy = session.originMidY - rect.top;
+      const worldX = (originMx - session.originScrollX) / session.initialZoom;
+      const worldY = (originMy - session.originScrollY) / session.initialZoom;
+      const newZoom = clampZoom(session.initialZoom * (d / session.initialDist));
+      // Anchor to current midpoint + allow finger mid drag to pan
+      setViewport({
+        zoom: newZoom,
+        scrollX: mx - worldX * newZoom,
+        scrollY: my - worldY * newZoom,
+      });
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.pointerType === "mouse") return;
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.current.size === 2) {
+        const pts = [...activePointers.current.values()];
+        const a = pts[0]!;
+        const b = pts[1]!;
+        const v = viewportRefState.current;
+        pinchSession.current = {
+          initialDist: Math.max(1, dist(a, b)),
+          initialZoom: v.zoom,
+          originScrollX: v.scrollX,
+          originScrollY: v.scrollY,
+          originMidX: (a.x + b.x) / 2,
+          originMidY: (a.y + b.y) / 2,
+        };
+        setIsPanning(true);
+        panSession.current = null;
+        e.preventDefault();
+      }
+    };
+
+    const onPointerMove = (e: PointerEvent) => {
+      if (!activePointers.current.has(e.pointerId)) return;
+      activePointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (activePointers.current.size >= 2 && pinchSession.current) {
+        e.preventDefault();
+        applyPinch();
+      }
+    };
+
+    const endPointer = (e: PointerEvent) => {
+      activePointers.current.delete(e.pointerId);
+      if (activePointers.current.size < 2) {
+        pinchSession.current = null;
+        if (!panSession.current) setIsPanning(false);
+      }
+    };
+
+    el.addEventListener("pointerdown", onPointerDown, { passive: false });
+    el.addEventListener("pointermove", onPointerMove, { passive: false });
+    el.addEventListener("pointerup", endPointer);
+    el.addEventListener("pointercancel", endPointer);
+
+    return () => {
+      el.removeEventListener("pointerdown", onPointerDown);
+      el.removeEventListener("pointermove", onPointerMove);
+      el.removeEventListener("pointerup", endPointer);
+      el.removeEventListener("pointercancel", endPointer);
+    };
+  }, [viewportRef]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -200,6 +299,8 @@ export function useBoardViewport(viewportRef: RefObject<HTMLElement | null>) {
 
   const handleViewportPointerDown = useCallback(
     (e: React.PointerEvent<HTMLElement>) => {
+      // Two-finger pinch is handled by native listeners above
+      if (activePointers.current.size >= 2 || pinchSession.current) return;
       if (!shouldPan(e)) return;
       e.preventDefault();
       e.stopPropagation();
@@ -218,6 +319,7 @@ export function useBoardViewport(viewportRef: RefObject<HTMLElement | null>) {
   );
 
   const handleViewportPointerMove = useCallback((e: React.PointerEvent<HTMLElement>) => {
+    if (pinchSession.current) return;
     const session = panSession.current;
     if (!session || session.pointerId !== e.pointerId) return;
 
@@ -233,7 +335,7 @@ export function useBoardViewport(viewportRef: RefObject<HTMLElement | null>) {
   const handleViewportPointerUp = useCallback((e: React.PointerEvent<HTMLElement>) => {
     if (panSession.current?.pointerId === e.pointerId) {
       panSession.current = null;
-      setIsPanning(false);
+      if (!pinchSession.current) setIsPanning(false);
     }
   }, []);
 

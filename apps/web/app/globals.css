@@ -662,6 +662,21 @@ input:focus {
   cursor: pointer;
 }
 
+@media (hover: none) and (pointer: coarse) {
+  .viewport-controls {
+    padding: 6px;
+    gap: 4px;
+  }
+  .viewport-controls button {
+    width: 44px;
+    height: 44px;
+  }
+  .viewport-controls .viewport-zoom-label {
+    min-width: 64px;
+    font-size: 0.85rem;
+  }
+}
+
 .viewport-controls button:hover {
   background: var(--surface-hover);
   color: var(--text);

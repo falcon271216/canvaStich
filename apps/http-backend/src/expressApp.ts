@@ -245,6 +245,40 @@ export function createApp(): Express {
     }
   });
 
+  /** Validate room exists (and caller may access it) before joining/drawing. */
+  app.get("/rooms/:roomId", middleware, async (req: Request, res: Response): Promise<void> => {
+    // @ts-expect-error Added by middleware
+    const userId: string = req.userId;
+    const roomId = Number(req.params.roomId);
+
+    if (!Number.isFinite(roomId) || roomId <= 0) {
+      res.status(400).json({ error: "Invalid room ID", code: "INVALID_ROOM_ID" });
+      return;
+    }
+
+    const room = await getPrisma().room.findUnique({
+      where: { id: roomId },
+      select: { id: true, name: true, slug: true, adminId: true },
+    });
+
+    if (!room) {
+      res.status(404).json({ error: "Room does not exist", code: "ROOM_NOT_FOUND" });
+      return;
+    }
+
+    const allowed = await hasRoomAccess(userId, roomId);
+    if (!allowed) {
+      res.status(403).json({ error: "You do not have access to this room", code: "ROOM_FORBIDDEN" });
+      return;
+    }
+
+    res.status(200).json({
+      roomId: room.id,
+      name: room.name,
+      slug: room.slug,
+    });
+  });
+
   // Invite/add collaborator endpoint
   app.post("/rooms/:roomId/members", middleware, async (req: Request, res: Response): Promise<void> => {
     const roomId = Number(req.params.roomId);

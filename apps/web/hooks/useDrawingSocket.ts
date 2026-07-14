@@ -59,6 +59,7 @@ export function useDrawingSocket({
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  const stopReconnectRef = useRef(false);
   const callbacksRef = useRef({
     onDrawEventAction,
     onCursorMoveAction,
@@ -79,7 +80,7 @@ export function useDrawingSocket({
   };
 
   const connect = useCallback(() => {
-    if (!token || !roomId) return;
+    if (!token || !roomId || stopReconnectRef.current) return;
 
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:4003";
     const ws = new WebSocket(`${wsUrl}?token=${token}`);
@@ -116,10 +117,22 @@ export function useDrawingSocket({
         case "identity":
           cb.onIdentityAction?.(data);
           break;
+        case "error":
+          // Permanent failures — do not reconnect in a loop
+          if (data.code === "ROOM_NOT_FOUND" || data.code === "ROOM_FORBIDDEN") {
+            stopReconnectRef.current = true;
+            if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+            if (typeof window !== "undefined" && data.code === "ROOM_NOT_FOUND") {
+              window.location.replace("/projects?error=room_not_found");
+            }
+          }
+          console.warn("[ws]", data.error || "Socket error", data.code);
+          break;
       }
     };
 
     ws.onclose = () => {
+      if (stopReconnectRef.current) return;
       const timeout = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
       reconnectTimeoutRef.current = setTimeout(() => {
         retryCountRef.current++;
@@ -133,9 +146,11 @@ export function useDrawingSocket({
   }, [token, roomId]);
 
   useEffect(() => {
+    stopReconnectRef.current = false;
     connect();
 
     return () => {
+      stopReconnectRef.current = true;
       if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
       if (wsRef.current) {
         if (wsRef.current.readyState === WebSocket.OPEN) {
