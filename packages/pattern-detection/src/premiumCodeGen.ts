@@ -1,13 +1,12 @@
 /**
  * Premium AI Code Generation v2 — Full-Page Prompt Engineering
  *
- * Converts page sections + annotations + design theme into rich
- * structured prompts for the Gemini API. Produces prompts that
- * generate $50k-quality production UI.
+ * Converts layout tree + purpose + design theme into structured prompts
+ * for Gemini. Preserves sketch positions (~90%) while theming content
+ * to the user's stated product purpose.
  */
 
 import type { LayoutNode } from "./layoutTree.js";
-import type { UIComponentType } from "./uiLabels.js";
 
 /* ────────────────────── types ────────────────────── */
 
@@ -27,6 +26,8 @@ export interface GenerationRequest {
   pageType?: 'landing' | 'dashboard' | 'form' | 'card' | 'nav' | 'auto';
   canvasWidth?: number;
   canvasHeight?: number;
+  /** What the UI is for — e.g. "weather app", "college website". Themes all copy/fields. */
+  purpose?: string;
 }
 
 /* ────────────────────── rich theme specs ────────────────────── */
@@ -57,7 +58,7 @@ export const DESIGN_THEMES: Record<DesignTheme, ThemeSpec> = {
     surface: '#F8FAFC',
     borderRadius: '10px',
     shadows: 'soft multi-layer (0 1px 3px rgba(0,0,0,0.1), 0 20px 40px rgba(0,0,0,0.08))',
-    special: 'Blue gradient text on hero headline. Subtle grid dot pattern background.',
+    special: 'Accent gradient text on headlines. Subtle grid dot pattern background.',
   },
   'glassmorphism': {
     label: 'Glassmorphism',
@@ -70,7 +71,7 @@ export const DESIGN_THEMES: Record<DesignTheme, ThemeSpec> = {
     surface: 'rgba(255,255,255,0.05)',
     borderRadius: '16px',
     shadows: 'glow shadows (0 0 30px rgba(168,85,247,0.2))',
-    special: 'backdrop-filter: blur(20px) on cards. Gradient borders. Animated gradient orbs in background.',
+    special: 'backdrop-filter: blur(20px) on cards. Gradient borders. Soft ambient orbs (decorative only).',
   },
   'brutalist': {
     label: 'Brutalist',
@@ -109,7 +110,7 @@ export const DESIGN_THEMES: Record<DesignTheme, ThemeSpec> = {
     surface: '#F0EEE9',
     borderRadius: '2px',
     shadows: 'none or very subtle',
-    special: 'HUGE display text (8rem+). Asymmetric columns. Black background sections for contrast.',
+    special: 'Strong display typography. High contrast sections. Stay within sketched regions.',
   },
   'dark-premium': {
     label: 'Dark Premium',
@@ -122,7 +123,7 @@ export const DESIGN_THEMES: Record<DesignTheme, ThemeSpec> = {
     surface: '#111111',
     borderRadius: '4px',
     shadows: 'subtle gold glow (0 0 40px rgba(212,175,55,0.1))',
-    special: 'Gold gradient accents. Thin elegant borders. Serif display font for headings. Grain texture overlay.',
+    special: 'Gold gradient accents. Thin elegant borders. Serif display font for headings.',
   },
 };
 
@@ -130,50 +131,40 @@ export const VALID_THEMES = Object.keys(DESIGN_THEMES) as DesignTheme[];
 
 /* ────────────────────── system prompt ────────────────────── */
 
-export const PREMIUM_SYSTEM_PROMPT = `You are an elite UI engineer and designer with 15 years of experience at companies like Stripe, Linear, Vercel, and Figma. You produce production-grade, visually stunning UI that looks like a $50,000 professionally designed website.
+export const PREMIUM_SYSTEM_PROMPT = `You are an elite UI engineer who turns hand-drawn wireframes into production UI.
+
+HIGHEST PRIORITY — SKETCH FIDELITY (≈90%):
+- The DETECTED LAYOUT is a spatial map of what the user drew. Treat it as law.
+- Place EVERY component using absolute (or equivalent) positioning that matches left%/top%/width%/height% from the layout.
+- Do NOT invent extra sections, columns, heroes, stats strips, or marketing blocks that are not in the layout.
+- Do NOT rearrange, restack, or center everything into a generic landing page.
+- Hierarchy from the tree may nest children inside parents; children must stay inside the parent's box.
+- Allow ≈10% improvisation only for: padding, fonts, colors, realistic copy, hover states, and small visual polish INSIDE each box.
+
+PURPOSE THEMING:
+- The PURPOSE field defines the product domain (e.g. weather app, college website).
+- ALL visible text, labels, placeholders, nav links, button copy, and field meanings MUST match that purpose.
+- Example: purpose "weather" → navbar "Weather", search "Search city…", cards temperature/conditions — still in the same boxes.
+- Example: purpose "college website" → navbar college name, hero admissions, inputs student email/course — same boxes.
+- Match purpose to component types: input_field → domain-relevant fields; button → domain CTAs; table → domain data; etc.
 
 ABSOLUTE RULES:
-- Output ONLY valid, complete, self-contained code — no explanations, no markdown fences, no comments about the code
-- For HTML: single complete file with embedded <style> and vanilla JS. Import Google Fonts via CDN link tag.
-- For React: single component function with inline Tailwind CSS classes. NO import/export statements. Use React.useState, React.useEffect etc. from the global React object.
-- MUST include meta viewport tag for HTML output
-- MUST be fully responsive with mobile breakpoints
-- ALL code must be syntactically valid and complete — never truncate or leave tags unclosed
-
-DESIGN QUALITY STANDARDS (CRITICAL — the output MUST look premium):
-- Hero sections: large bold headlines (48-72px), gradient text effects, compelling subheadlines, dual CTA buttons (primary filled + secondary outline)
-- Navigation: clean horizontal nav with logo, links, and a prominent CTA button. Sticky on scroll.
-- Cards: generous padding (24-32px), subtle borders, multi-layer shadows, hover lift transform with transition
-- Every interactive element MUST have hover/focus states with smooth 0.2-0.3s transitions
-- Typography: use a clear hierarchy — display headings (bold 600-800 weight), body text (regular 400), captions (light 300). Line-height 1.5-1.8 for body text.
-- Color: use the theme palette precisely. Apply the primary color to CTAs, links, and accents. Use neutrals for text hierarchy (900 for headings, 600 for body, 400 for muted).
-- Spacing: 8px grid system. Sections should have 80-120px vertical padding. Cards should have 24-32px inner padding.
-- Backgrounds: use subtle gradients, dot patterns, or gradient mesh. Never plain flat white unless brutalist theme.
-- Micro-animations: elements should fade-in on scroll using IntersectionObserver (HTML) or useEffect (React). Buttons should scale(1.02) on hover.
-- Stats/metrics sections: show 3-4 impressive numbers with labels (e.g., "10K+ Users", "99.9% Uptime")
-- Feature grids: 3-column card layouts with icons, titles, and descriptions
-- Social proof: testimonial cards with avatar initials, name, role, and quote
-- NO Lorem Ipsum — use realistic, compelling placeholder content
-- NO generic labels — infer contextually accurate button text, headings, and descriptions
-- Images must be mutable: for the hero image, define const heroImageSrc = "REPLACE_ME_HERO_IMAGE_URL" (or a prop named heroImageSrc) and render the hero via an img tag with src={heroImageSrc}. For every image_placeholder, define a replaceable constant named imagePlaceholderSrc (or imagePlaceholderSrc1, imagePlaceholderSrc2, etc.) and render via img src={imagePlaceholderSrc...}. Do not use external http(s) image URLs.
-- Decorative elements: floating gradient orbs, subtle grid backgrounds, border accents
-
-COMPONENT QUALITY:
-- navbar: stylized text logo, horizontal nav links, CTA button, mobile hamburger menu with toggle
-- hero: big headline with gradient text, subtext paragraph, primary + ghost CTA buttons, and a side hero image rendered via a replaceable img tag using the heroImageSrc constant/prop
-- card: rounded corners, padding 24px+, icon/emoji area, title, description, subtle border + layered shadow, hover translateY(-4px) with shadow increase
-- button: gradient or solid fill, padding 12px 24px+, rounded, hover brightness/scale, focus ring
-- form inputs: label above, 1px border, focus ring with primary accent color, placeholder text, rounded
-- footer: dark background, logo, 3-4 column link groups, social icons, copyright line
-- tables: styled header row, alternating row backgrounds, proper cell padding
-- avatars: circular with background color and white initials text
-- badges/pills: small rounded-full elements with tinted backgrounds`;
+- Output ONLY valid, complete, self-contained code — no explanations, no markdown fences
+- For HTML: single complete file with embedded <style> and vanilla JS. Import Google Fonts via CDN.
+- For React: single component function with inline Tailwind CSS classes. NO import/export statements. Use React.useState etc. from global React.
+- MUST include meta viewport for HTML
+- Root canvas: position relative; fixed aspect matching the wireframe canvas size. Components positioned absolute with % units from layout.
+- ALL tags closed; never truncate
+- Every interactive element has hover/focus states (0.2–0.3s)
+- NO Lorem Ipsum — realistic purpose-specific content only
+- Images: use REPLACE_ME_* constants for img src — no external http(s) image URLs
+- Mobile: may stack only if needed under 640px, but desktop (≥768px) MUST mirror sketch positions`;
 
 /* ────────────────────── layout serializer ────────────────────── */
 
 /**
- * Convert a LayoutNode tree into a natural-language description
- * that preserves hierarchy, sizing, and positioning intent.
+ * Convert a LayoutNode tree into a spatial description with % positions
+ * so the model can place components where the sketch is.
  */
 export function serializeLayoutForPrompt(
   tree: LayoutNode,
@@ -183,18 +174,21 @@ export function serializeLayoutForPrompt(
   function describeNode(node: LayoutNode, depth: number = 0): string {
     const indent = '  '.repeat(depth);
     const bbox = node.component.boundingBox;
-    const relativeW = Math.round((bbox.width / canvasWidth) * 100);
-    const relativeH = Math.round((bbox.height / canvasHeight) * 100);
+    const left = Math.round((bbox.x / canvasWidth) * 1000) / 10;
+    const top = Math.round((bbox.y / canvasHeight) * 1000) / 10;
+    const relativeW = Math.round((bbox.width / canvasWidth) * 1000) / 10;
+    const relativeH = Math.round((bbox.height / canvasHeight) * 1000) / 10;
 
     let desc = `${indent}[${node.component.type.toUpperCase()}]`;
-    desc += ` (${relativeW}% wide, ${relativeH}% tall`;
+    desc += ` position: left ${left}%, top ${top}%, width ${relativeW}%, height ${relativeH}%`;
+    desc += ` (px: x=${Math.round(bbox.x)}, y=${Math.round(bbox.y)}, w=${Math.round(bbox.width)}, h=${Math.round(bbox.height)}`;
     if (node.component.confidence > 0) {
       desc += `, confidence: ${Math.round(node.component.confidence * 100)}%`;
     }
     desc += ')';
 
-    if (node.layoutHints.isRow) desc += ' — horizontal row layout';
-    if (node.layoutHints.isColumn && !node.layoutHints.isRow) desc += ' — vertical stack layout';
+    if (node.layoutHints.isRow) desc += ' — horizontal row inside this box';
+    if (node.layoutHints.isColumn && !node.layoutHints.isRow) desc += ' — vertical stack inside this box';
     if (node.layoutHints.alignment !== 'start') desc += ` [align: ${node.layoutHints.alignment}]`;
 
     if (node.children.length > 0) {
@@ -205,13 +199,17 @@ export function serializeLayoutForPrompt(
     return desc;
   }
 
-  return describeNode(tree);
+  return [
+    `Canvas size: ${canvasWidth}×${canvasHeight}px (use this as the root frame)`,
+    `Place each node at the listed left%/top%/width%/height% relative to the canvas.`,
+    describeNode(tree),
+  ].join('\n');
 }
 
 /* ────────────────────── full page prompt builder ────────────────────── */
 
 /**
- * Build the complete prompt with rich design specs and page structure.
+ * Build the complete prompt with purpose theming + positional fidelity.
  */
 export function buildPremiumPrompt(request: GenerationRequest): {
   system: string;
@@ -221,12 +219,23 @@ export function buildPremiumPrompt(request: GenerationRequest): {
   const canvasH = request.canvasHeight ?? 600;
   const layoutDescription = serializeLayoutForPrompt(request.layoutTree, canvasW, canvasH);
   const themeSpec = DESIGN_THEMES[request.theme];
+  const purpose = (request.purpose || '').trim() || 'general product UI (infer carefully from layout types only)';
 
   const userPrompt = `
-Generate a premium ${request.framework === 'react' ? 'React component with Tailwind CSS' : 'standalone HTML page'} based on this hand-drawn wireframe layout:
+Generate a ${request.framework === 'react' ? 'React component with Tailwind CSS' : 'standalone HTML page'} from this hand-drawn wireframe.
 
-## DETECTED LAYOUT
+## PURPOSE (theme all content & meaning to this — do not invent other products)
+${purpose}
+
+## DETECTED LAYOUT (spatial map — ≈90% fidelity REQUIRED)
 ${layoutDescription}
+
+## POSITIONING RULES (CRITICAL)
+1. Root container: width ${canvasW}px (max-width 100%), height ${canvasH}px (or aspect-ratio ${canvasW}/${canvasH}), position: relative; overflow: hidden.
+2. Every component MUST use position:absolute (or Tailwind absolute) with left/top/width/height matching the % values above (±10% max drift).
+3. Do NOT add components that are not listed. Do NOT remove listed components.
+4. Nested children must stay inside their parent box.
+5. The remaining ≈10% budget is only for styling, typography, icons, and purpose-specific copy INSIDE those boxes.
 
 ## DESIGN SYSTEM
 Theme: ${themeSpec.label} — ${themeSpec.description}
@@ -240,43 +249,32 @@ Shadow Style: ${themeSpec.shadows}
 Special Effects: ${themeSpec.special}
 
 ## PAGE/COMPONENT TYPE HINT
-${request.pageType || 'auto-detect from the component layout'}
+${request.pageType || 'derive only from detected component types — do not invent sections'}
 
 ## COMPONENT NAME
 ${request.componentName}
 
-## DESIGN REQUIREMENTS
-- This must look like a $50,000 professionally designed website
-- Every section must have proper visual hierarchy and breathing room
-- Typography: display font for headings, body font for text, clear size scale
-- Colors: dominant background, 1 primary accent, 1 secondary accent, neutral text scale
-- Animations: entrance animations on scroll (use IntersectionObserver for HTML)
-- Hover states on ALL interactive elements with smooth transitions
-- Proper shadow depth (sm/md/lg shadow scale)
-- Mobile responsive (include @media queries / Tailwind responsive classes)
-
 ## CONTENT RULES
-- Use REALISTIC, SPECIFIC placeholder content (never Lorem Ipsum)
-- Infer content from component semantics and layout context
-- Hero headlines should be compelling and specific
-- Badge text, button labels, nav links must be contextually accurate
-- Add realistic user avatars as initials-based avatar components (no external images)
+- Every label, heading, placeholder, button, and nav item MUST sound like a "${purpose}" product
+- Example mappings: weather → city, forecast, °C; college → admissions, courses, campus; ecommerce → cart, price, product
+- NO Lorem Ipsum; NO generic SaaS marketing if it conflicts with PURPOSE
+- Prefer short, precise copy that fits the sketched box sizes
 
 ## OUTPUT
 ${request.framework === 'html' ?
-    'Output a single complete HTML file. Embed ALL CSS in <style> tags. Import fonts from Google Fonts CDN via <link> tag. Include <!DOCTYPE html>. No external JS dependencies. The file must be fully self-contained and render beautifully on its own. Make sure ALL HTML tags are properly closed. End the file with </html>.' :
-    `Output a single React functional component named "${request.componentName}". Use Tailwind CSS utility classes for all styling.
+    'Output a single complete HTML file. Embed ALL CSS in <style> tags. Import fonts from Google Fonts CDN via <link> tag. Include <!DOCTYPE html>. No external JS dependencies. ALL HTML tags properly closed. End with </html>.' :
+    `Output a single React functional component named "${request.componentName}". Use Tailwind CSS utility classes.
 
 CRITICAL React Rules:
-- Do NOT use any import or export statements (the code runs in a browser with React and ReactDOM as globals)
-- Use React.useState, React.useEffect, React.useRef etc. — NOT destructured hooks
-- Define the component as: function ${request.componentName}() { ... }
-- Do NOT use TypeScript syntax — no type annotations, no interfaces, no 'as' casts
-- Keep all sub-components in the same file as regular functions
-- Make sure ALL JSX tags are properly closed
-- The component must return a single root element`}
-Output ONLY the code, nothing else — no markdown fences, no explanations, no commentary.
-IMPORTANT: Make sure the code is COMPLETE and all tags/braces are properly closed. Do not truncate.
+- Do NOT use any import or export statements (React and ReactDOM are globals)
+- Use React.useState, React.useEffect, React.useRef — NOT destructured hooks
+- Define: function ${request.componentName}() { ... }
+- No TypeScript syntax
+- Keep sub-components in the same file as regular functions
+- ALL JSX tags closed
+- Return a single root element sized to the canvas`}
+Output ONLY the code — no markdown fences, no explanations.
+IMPORTANT: Code must be COMPLETE with all tags/braces closed. Do not truncate.
   `.trim();
 
   return {
@@ -287,9 +285,6 @@ IMPORTANT: Make sure the code is COMPLETE and all tags/braces are properly close
 
 /* ────────────────────── helpers ────────────────────── */
 
-/**
- * Count total nodes in a layout tree.
- */
 export function countLayoutNodes(node: LayoutNode): number {
   let count = 1;
   for (const child of node.children) {
@@ -298,19 +293,14 @@ export function countLayoutNodes(node: LayoutNode): number {
   return count;
 }
 
-/**
- * Strip markdown code fences from generated output.
- */
 export function stripCodeFences(code: string): string {
   let cleaned = code.trim();
 
-  // Remove leading ```html or ```tsx or ```jsx etc.
   const fenceStart = /^```(?:html|tsx|jsx|react|javascript|js)?\s*\n?/;
   if (fenceStart.test(cleaned)) {
     cleaned = cleaned.replace(fenceStart, '');
   }
 
-  // Remove trailing ```
   if (cleaned.endsWith('```')) {
     cleaned = cleaned.slice(0, -3).trimEnd();
   }

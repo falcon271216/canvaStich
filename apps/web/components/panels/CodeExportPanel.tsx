@@ -80,11 +80,22 @@ const THEMES: { id: DesignTheme; label: string; color: string }[] = [
 
 /* ────────────────────── progress step labels ────────────────────── */
 
+const PURPOSE_SUGGESTIONS = [
+  "Weather app",
+  "College website",
+  "E-commerce store",
+  "SaaS dashboard",
+  "Hospital clinic",
+  "Restaurant menu",
+  "Portfolio",
+  "Banking app",
+];
+
 const PROGRESS_STEPS = [
   { label: "Analyzing wireframe structure...", progress: 10 },
-  { label: "Detecting page sections...", progress: 25 },
-  { label: "Building layout tree...", progress: 40 },
-  { label: "Generating premium UI with AI...", progress: 60 },
+  { label: "Mapping sketch positions...", progress: 25 },
+  { label: "Applying purpose theme...", progress: 40 },
+  { label: "Generating UI with AI...", progress: 60 },
   { label: "Polishing output...", progress: 85 },
   { label: "Done! ✨", progress: 100 },
 ];
@@ -115,6 +126,9 @@ export default function CodeExportPanel({
   const [theme, setTheme] = useState<DesignTheme>("modern-saas");
   const [framework, setFramework] = useState<"react" | "html">("html");
   const [componentName, setComponentName] = useState("GeneratedComponent");
+  const [purpose, setPurpose] = useState("");
+  const [purposeDraft, setPurposeDraft] = useState("");
+  const [showPurposeModal, setShowPurposeModal] = useState(false);
   const [state, setState] = useState<GenerationState>("idle");
   const [generatedCode, setGeneratedCode] = useState("");
   const [generatedFramework, setGeneratedFramework] = useState<"react" | "html" | null>(null);
@@ -138,8 +152,16 @@ export default function CodeExportPanel({
 
   const apiBase = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
 
-  const handleGenerate = useCallback(async () => {
+  const handleGenerate = useCallback(async (purposeOverride?: string) => {
     if (!layoutTree) return;
+    const purposeText = (purposeOverride ?? purpose).trim();
+    if (!purposeText) {
+      setPurposeDraft(purpose);
+      setShowPurposeModal(true);
+      return;
+    }
+    setPurpose(purposeText);
+    setShowPurposeModal(false);
     setState("generating");
     setErrorMsg("");
     setShowProgress(true);
@@ -166,6 +188,7 @@ export default function CodeExportPanel({
           componentName,
           canvasWidth,
           canvasHeight,
+          purpose: purposeText,
           annotations: annotations ? Object.fromEntries(annotations) : undefined,
           roomId: roomId ? Number(roomId) : undefined,
         }),
@@ -211,7 +234,22 @@ export default function CodeExportPanel({
       setProgressStep(0);
       progressTimers.forEach(clearTimeout);
     }
-  }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete, annotations, roomId]);
+  }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete, annotations, roomId, purpose]);
+
+  const openPurposeModal = useCallback(() => {
+    setPurposeDraft(purpose);
+    setShowPurposeModal(true);
+  }, [purpose]);
+
+  const confirmPurposeAndGenerate = useCallback(() => {
+    const trimmed = purposeDraft.trim();
+    if (!trimmed) {
+      setErrorMsg("Enter what this UI is for (e.g. weather, college website).");
+      return;
+    }
+    setErrorMsg("");
+    void handleGenerate(trimmed);
+  }, [purposeDraft, handleGenerate]);
 
   const handleUpgrade = async (plan: "pro" | "team") => {
     if (!upgradeWorkspaceId) return;
@@ -239,7 +277,7 @@ export default function CodeExportPanel({
         setShowUpgradeModal(false);
         setUpgradeSuccess(false);
         setIsUpgrading(false);
-        handleGenerate();
+        handleGenerate(purpose.trim() || undefined);
       }, 1500);
     } catch (err: any) {
       setErrorMsg(err.message || "Failed to upgrade workspace.");
@@ -247,13 +285,14 @@ export default function CodeExportPanel({
     }
   };
 
-  // Auto-generate on mount when triggered from AutoDraw
+  // Auto-generate on mount when triggered from AutoDraw — ask purpose first
   useEffect(() => {
     if (autoGenerate && !autoGenRef.current && layoutTree) {
       autoGenRef.current = true;
-      handleGenerate();
+      setPurposeDraft(purpose);
+      setShowPurposeModal(true);
     }
-  }, [autoGenerate, layoutTree, handleGenerate]);
+  }, [autoGenerate, layoutTree, purpose]);
 
   // Reset autoGen ref when autoGenerate prop becomes false
   useEffect(() => {
@@ -332,6 +371,23 @@ export default function CodeExportPanel({
 
 
 
+      {/* Purpose */}
+      <div className="code-name-field">
+        <label>UI Purpose</label>
+        <input
+          type="text"
+          value={purpose}
+          onChange={(e) => setPurpose(e.target.value.slice(0, 200))}
+          placeholder="e.g. weather app, college website…"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") openPurposeModal();
+          }}
+        />
+        <p className="code-purpose-hint">
+          Content &amp; field labels match this purpose. Layout stays where you sketched (~90%).
+        </p>
+      </div>
+
       {/* Component Name */}
       <div className="code-name-field">
         <label>Component Name</label>
@@ -388,7 +444,7 @@ export default function CodeExportPanel({
 
       {/* Generate Button */}
       <button
-        onClick={handleGenerate}
+        onClick={openPurposeModal}
         disabled={state === "generating"}
         className="premium-generate-btn"
       >
@@ -407,7 +463,7 @@ export default function CodeExportPanel({
         <div className="premium-error">
           <AlertTriangle size={14} />
           <span>{errorMsg}</span>
-          <button onClick={handleGenerate} className="premium-retry-btn">
+          <button onClick={openPurposeModal} className="premium-retry-btn">
             Retry
           </button>
         </div>
@@ -487,11 +543,100 @@ export default function CodeExportPanel({
         <div className="code-output-placeholder">
           <Code2 size={18} style={{ opacity: 0.4 }} />
           <p>
-            Click <strong>Generate Premium UI</strong> to create{" "}
-            {framework === "react" ? "React" : "HTML"} code from your wireframe.
+            Click <strong>Generate Premium UI</strong>, set the purpose (weather, college…), then generate code matched to your sketch positions.
           </p>
         </div>
       ) : null}
+
+      {/* ── Purpose modal ── */}
+      {showPurposeModal && (
+        <div className="project-create-overlay" style={{ backdropFilter: "blur(12px)", zIndex: 10000 }}>
+          <div
+            className="project-create-modal purpose-modal"
+            style={{
+              maxWidth: "440px",
+              background: "rgba(18,18,24,0.98)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              boxShadow: "0 20px 50px rgba(0,0,0,0.5)",
+              padding: "1.5rem",
+              borderRadius: "16px",
+            }}
+          >
+            <h3 style={{ fontSize: "1.15rem", fontWeight: 800, color: "#fafafa", marginBottom: "0.35rem" }}>
+              What is this UI for?
+            </h3>
+            <p style={{ color: "var(--text-muted)", fontSize: "0.82rem", lineHeight: 1.5, marginBottom: "1rem" }}>
+              We keep your sketch layout (~90% same positions) and theme labels, fields, and copy to this purpose.
+            </p>
+
+            <label style={{ display: "block", fontSize: "0.7rem", fontWeight: 600, color: "var(--text-dim)", marginBottom: "0.35rem", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+              Purpose
+            </label>
+            <input
+              type="text"
+              autoFocus
+              value={purposeDraft}
+              onChange={(e) => setPurposeDraft(e.target.value.slice(0, 200))}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmPurposeAndGenerate();
+                if (e.key === "Escape") setShowPurposeModal(false);
+              }}
+              placeholder="e.g. weather, college website, food delivery…"
+              style={{
+                width: "100%",
+                padding: "0.65rem 0.75rem",
+                borderRadius: "8px",
+                border: "1px solid rgba(255,255,255,0.12)",
+                background: "rgba(0,0,0,0.35)",
+                color: "#fafafa",
+                fontSize: "0.9rem",
+                marginBottom: "0.75rem",
+                outline: "none",
+              }}
+            />
+
+            <div className="purpose-chip-row">
+              {PURPOSE_SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  className={`purpose-chip ${purposeDraft === s ? "active" : ""}`}
+                  onClick={() => setPurposeDraft(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+
+            {errorMsg && state !== "error" && (
+              <div style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "8px", color: "#fca5a5", padding: "0.6rem", fontSize: "0.78rem", marginTop: "0.75rem" }}>
+                {errorMsg}
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem", marginTop: "1.25rem" }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPurposeModal(false);
+                  setErrorMsg("");
+                }}
+                style={{ background: "transparent", border: "none", color: "var(--text-dim)", fontSize: "0.8rem", cursor: "pointer", padding: "0.5rem 0.85rem" }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmPurposeAndGenerate}
+                className="premium-generate-btn"
+                style={{ margin: 0, width: "auto", padding: "0.55rem 1rem" }}
+              >
+                Generate with this purpose
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Subscription Upgrade Modal ── */}
       {showUpgradeModal && (

@@ -1719,6 +1719,36 @@ input:focus {
   font-size: 0.85rem;
   padding: 0.45rem 0.7rem;
 }
+.code-purpose-hint {
+  margin: 0.35rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+}
+.purpose-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.purpose-chip {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-secondary);
+  font-size: 0.72rem;
+  padding: 0.3rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.purpose-chip:hover {
+  border-color: rgba(99, 102, 241, 0.45);
+  color: #e5e7eb;
+}
+.purpose-chip.active {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.18);
+  color: #c7d2fe;
+}
 .code-framework-toggle {
   display: flex;
   gap: 4px;

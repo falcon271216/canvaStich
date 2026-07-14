@@ -112,7 +112,7 @@ function simpleHash(obj: unknown): string {
  * Converts a layout tree + design theme into a production-quality
  * styled component (HTML or React).
  *
- * Body: { layoutTree, theme, framework, componentName, canvasWidth?, canvasHeight?, roomId? }
+ * Body: { layoutTree, theme, framework, componentName, canvasWidth?, canvasHeight?, purpose?, roomId? }
  * Returns: { code: string, framework: string, theme: string, cached: boolean }
  */
 router.post("/generate-premium-ui", middleware, async (req: Request, res: Response): Promise<void> => {
@@ -125,6 +125,7 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
       canvasWidth,
       canvasHeight,
       annotations,
+      purpose,
       roomId,
     } = req.body;
 
@@ -203,8 +204,10 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
     // Sanitize component name
     const safeName = (componentName as string).replace(/[^a-zA-Z0-9]/g, "") || "GeneratedComponent";
 
-    // Check cache
-    const cacheKey = `premium:${simpleHash({ layoutTree, theme, framework })}`;
+    const purposeText = typeof purpose === "string" ? purpose.trim().slice(0, 200) : "";
+
+    // Check cache (include purpose so weather ≠ college for same layout)
+    const cacheKey = `premium:${simpleHash({ layoutTree, theme, framework, purpose: purposeText })}`;
     const cached = cacheGet(cacheKey);
     if (cached) {
       // Record cached usage event too
@@ -212,11 +215,11 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
         data: {
           workspaceId: workspace.id,
           eventType: "premium_generation",
-          metadata: { componentName: safeName, theme, framework, cached: true },
+          metadata: { componentName: safeName, theme, framework, purpose: purposeText || null, cached: true },
         },
       });
 
-      res.status(200).json({ code: cached, framework, theme, cached: true });
+      res.status(200).json({ code: cached, framework, theme, purpose: purposeText || null, cached: true });
       return;
     }
 
@@ -237,6 +240,7 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
       componentName: safeName,
       canvasWidth: canvasWidth ?? 900,
       canvasHeight: canvasHeight ?? 600,
+      purpose: purposeText || undefined,
     });
 
     // Append annotations to the user prompt if present
@@ -250,6 +254,10 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
         if (ann.styleOverride) annotationBlock += `\n  Style: ${ann.styleOverride}`;
       }
       annotatedUser += annotationBlock;
+    }
+
+    if (purposeText) {
+      annotatedUser += `\n\nREMINDER: PURPOSE is "${purposeText}". Theme every field/label/CTA to this domain. Keep all boxes at their sketched positions (±10%).`;
     }
 
     // Call Gemini generateContent API
@@ -271,7 +279,7 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
         ],
         generationConfig: {
           maxOutputTokens: 16000,
-          temperature: 0.4,
+          temperature: purposeText ? 0.25 : 0.4,
         },
       }),
     });
@@ -361,7 +369,7 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
       data: {
         workspaceId: workspace.id,
         eventType: "premium_generation",
-        metadata: { componentName: safeName, theme, framework, cached: false },
+        metadata: { componentName: safeName, theme, framework, purpose: purposeText || null, cached: false },
       },
     });
 
@@ -369,6 +377,7 @@ router.post("/generate-premium-ui", middleware, async (req: Request, res: Respon
       code,
       framework,
       theme,
+      purpose: purposeText || null,
       componentName: safeName,
       cached: false,
     });
