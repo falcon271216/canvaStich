@@ -81,10 +81,7 @@ export default function RoomsPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (res.status === 404 || data.code === "ROOM_NOT_FOUND") {
-        throw new Error("This room does not exist.");
-      }
-      if (res.status === 403 || data.code === "ROOM_FORBIDDEN") {
-        throw new Error(data.error || "You do not have access to this room.");
+        throw new Error("This room does not exist. Ask the host for a valid room ID.");
       }
       if (!res.ok) {
         throw new Error(data.error || "Unable to join room.");
@@ -135,7 +132,7 @@ export default function RoomsPage() {
       <div className="container fade-in">
         <h1 className="page-title">Your Rooms</h1>
         <p className="page-subtitle">
-          Create a new collaborative whiteboard or join an existing session.
+          Create a whiteboard or join with a room ID — everyone in the room syncs drawings and chat in real time.
         </p>
 
         {error && (

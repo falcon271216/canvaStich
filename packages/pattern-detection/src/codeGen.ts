@@ -64,6 +64,31 @@ ${indent(childrenCode || '<a href="#" className="text-gray-600 hover:text-gray-9
   </div>
 </nav>`;
 
+    case 'footer':
+      return `<footer className="bg-gray-900 text-gray-300 px-8 py-10">
+  <div className="grid grid-cols-3 gap-8 mb-8">
+    <div>
+      <div className="text-white font-semibold mb-3">Product</div>
+      <a href="#" className="block text-sm hover:text-white mb-2">Features</a>
+      <a href="#" className="block text-sm hover:text-white mb-2">Pricing</a>
+      <a href="#" className="block text-sm hover:text-white">Docs</a>
+    </div>
+    <div>
+      <div className="text-white font-semibold mb-3">Company</div>
+      <a href="#" className="block text-sm hover:text-white mb-2">About</a>
+      <a href="#" className="block text-sm hover:text-white mb-2">Blog</a>
+      <a href="#" className="block text-sm hover:text-white">Careers</a>
+    </div>
+    <div>
+      <div className="text-white font-semibold mb-3">Support</div>
+      <a href="#" className="block text-sm hover:text-white mb-2">Help</a>
+      <a href="#" className="block text-sm hover:text-white mb-2">Contact</a>
+      <a href="#" className="block text-sm hover:text-white">Status</a>
+    </div>
+  </div>
+${indent(childrenCode || '<p className="text-sm text-gray-500 border-t border-gray-800 pt-6">© 2026 Company. All rights reserved.</p>', 2)}
+</footer>`;
+
     case 'modal':
       return `<div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
   <div className="bg-white rounded-xl shadow-2xl p-6 max-w-md w-full mx-4">
@@ -185,6 +210,31 @@ ${indent(childrenCode || '<p>Card content</p>', 2)}
 ${indent(childrenCode || '<a href="#">Link</a>', 4)}
   </div>
 </nav>`;
+
+    case 'footer':
+      return `<footer style="background: #111827; color: #d1d5db; padding: 40px 32px;">
+  <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 32px; margin-bottom: 32px;">
+    <div>
+      <div style="color: white; font-weight: 600; margin-bottom: 12px;">Product</div>
+      <a href="#" style="display: block; font-size: 14px; margin-bottom: 8px; color: inherit;">Features</a>
+      <a href="#" style="display: block; font-size: 14px; margin-bottom: 8px; color: inherit;">Pricing</a>
+      <a href="#" style="display: block; font-size: 14px; color: inherit;">Docs</a>
+    </div>
+    <div>
+      <div style="color: white; font-weight: 600; margin-bottom: 12px;">Company</div>
+      <a href="#" style="display: block; font-size: 14px; margin-bottom: 8px; color: inherit;">About</a>
+      <a href="#" style="display: block; font-size: 14px; margin-bottom: 8px; color: inherit;">Blog</a>
+      <a href="#" style="display: block; font-size: 14px; color: inherit;">Careers</a>
+    </div>
+    <div>
+      <div style="color: white; font-weight: 600; margin-bottom: 12px;">Support</div>
+      <a href="#" style="display: block; font-size: 14px; margin-bottom: 8px; color: inherit;">Help</a>
+      <a href="#" style="display: block; font-size: 14px; margin-bottom: 8px; color: inherit;">Contact</a>
+      <a href="#" style="display: block; font-size: 14px; color: inherit;">Status</a>
+    </div>
+  </div>
+${indent(childrenCode || '<p style="font-size: 14px; color: #6b7280; border-top: 1px solid #1f2937; padding-top: 24px;">© 2026 Company. All rights reserved.</p>', 2)}
+</footer>`;
 
     case 'modal':
       return `<div style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50;">

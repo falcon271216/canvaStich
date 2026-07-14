@@ -142,6 +142,7 @@ function scoreHeuristic(features: StrokeFeatureVector, bbox: BoundingBox): Map<U
       label === 'dropdown' ||
       label === 'card' ||
       label === 'navbar' ||
+      label === 'footer' ||
       label === 'modal' ||
       label === 'container_box' ||
       label === 'image_placeholder'

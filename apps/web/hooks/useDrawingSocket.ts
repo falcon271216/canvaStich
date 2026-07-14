@@ -119,11 +119,11 @@ export function useDrawingSocket({
           break;
         case "error":
           // Permanent failures — do not reconnect in a loop
-          if (data.code === "ROOM_NOT_FOUND" || data.code === "ROOM_FORBIDDEN") {
+          if (data.code === "ROOM_NOT_FOUND") {
             stopReconnectRef.current = true;
             if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-            if (typeof window !== "undefined" && data.code === "ROOM_NOT_FOUND") {
-              window.location.replace("/projects?error=room_not_found");
+            if (typeof window !== "undefined") {
+              window.location.replace("/rooms?error=room_not_found");
             }
           }
           console.warn("[ws]", data.error || "Socket error", data.code);

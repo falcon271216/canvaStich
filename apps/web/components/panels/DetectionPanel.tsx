@@ -42,6 +42,7 @@ const COMPONENT_COLORS: Record<string, string> = {
   feature_grid: "#fb923c",
   nav_menu: "#c084fc",
   notification_bell: "#fcd34d",
+  footer: "#64748b",
 };
 
 export function getComponentColor(type: string): string {

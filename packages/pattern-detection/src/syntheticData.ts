@@ -209,6 +209,15 @@ function generateNavbarStroke(): Point[][] {
   return [addNoise(addTimestamps(pts, rand(1500, 3000)), rand(3, 5))];
 }
 
+function generateFooterStroke(): Point[][] {
+  const w = rand(400, 700);
+  const h = rand(70, 120);
+  const x = rand(20, 100);
+  const y = rand(400, 550);
+  const pts = rectanglePath(x, y, w, h, 16);
+  return [addNoise(addTimestamps(pts, rand(1500, 3000)), rand(3, 5))];
+}
+
 function generateModalStroke(): Point[][] {
   const w = rand(200, 400);
   const h = rand(180, 350);
@@ -498,6 +507,7 @@ const GENERATORS: Record<string, GeneratorFn> = {
   feature_grid: generateFeatureGridStroke,
   nav_menu: generateNavMenuStroke,
   notification_bell: generateNotificationBellStroke,
+  footer: generateFooterStroke,
 };
 
 /**

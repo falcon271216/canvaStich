@@ -137,17 +137,11 @@ wss.on("connection", async (ws, request) => {
         const rId = Number(roomId);
         if (isNaN(rId)) return ws.close();
 
-        // Security check: Validate room exists + permission
-        let roomExists = false;
-        let hasAccess = false;
+        // Anyone with a valid room ID can join for realtime sync
         try {
           const room = await getPrisma().room.findUnique({
             where: { id: rId },
-            include: {
-              members: {
-                where: { userId }
-              }
-            }
+            select: { id: true },
           });
 
           if (!room) {
@@ -160,34 +154,23 @@ wss.on("connection", async (ws, request) => {
             return ws.close();
           }
 
-          roomExists = true;
-          if (room.adminId === userId) {
-            hasAccess = true;
-          } else if (room.members.length > 0) {
-            hasAccess = true;
-          } else {
-            const projects = await getPrisma().project.findMany({
-              where: {
-                roomId: rId,
-                workspace: { ownerId: userId }
-              }
+          try {
+            await getPrisma().roomMember.upsert({
+              where: { roomId_userId: { roomId: rId, userId } },
+              create: { roomId: rId, userId },
+              update: {},
             });
-            if (projects.length > 0) {
-              hasAccess = true;
-            }
+          } catch (memberErr) {
+            console.error("[ws-backend] ensureRoomMember failed:", memberErr);
           }
         } catch (err) {
-          console.error("[ws-backend] error checking room access:", err);
-        }
-
-        if (!hasAccess) {
-          console.warn(`[ws-backend] User ${userId} unauthorized to join room ${rId} (exists=${roomExists})`);
+          console.error("[ws-backend] error checking room:", err);
           ws.send(JSON.stringify({
             type: "error",
-            error: "Unauthorized access to this room",
-            code: "ROOM_FORBIDDEN",
+            error: "Unable to join room",
+            code: "ROOM_CHECK_FAILED",
           }));
-          return ws.close();
+          return;
         }
 
         if (!client.rooms.includes(roomId)) {

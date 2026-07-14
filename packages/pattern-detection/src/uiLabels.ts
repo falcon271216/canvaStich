@@ -31,7 +31,8 @@ export type UIComponentType =
   | 'list'
   | 'feature_grid'
   | 'nav_menu'
-  | 'notification_bell';
+  | 'notification_bell'
+  | 'footer';
 
 /** Ordered label list (indices match CNN output layer). */
 export const UI_COMPONENT_LABELS: UIComponentType[] = [
@@ -58,6 +59,7 @@ export const UI_COMPONENT_LABELS: UIComponentType[] = [
   'feature_grid',
   'nav_menu',
   'notification_bell',
+  'footer',
 ];
 
 /** Total number of classes. */
@@ -89,6 +91,7 @@ export const UI_COMPONENT_ICONS: Record<UIComponentType, string> = {
   feature_grid:      '⊞',
   nav_menu:          '☰',
   notification_bell: '🔔',
+  footer:            '▬',
 };
 
 /** Human-readable display names. */
@@ -115,6 +118,7 @@ export const UI_COMPONENT_DISPLAY_NAMES: Record<UIComponentType, string> = {
   feature_grid:      'Feature Grid',
   nav_menu:          'Nav Menu',
   notification_bell: 'Notification Bell',
+  footer:            'Footer',
 };
 
 /* ────────────────────── classification hints ────────────────────── */
@@ -267,5 +271,11 @@ export const UI_COMPONENT_HINTS: Record<UIComponentType, ComponentHint> = {
     typicalStrokeCount: [1, 3],
     closureLikelihood: 'high',
     typicalSize: 'small',
+  },
+  footer: {
+    typicalAspectRatio: [4, 30],
+    typicalStrokeCount: [1, 6],
+    closureLikelihood: 'high',
+    typicalSize: 'large',
   },
 };

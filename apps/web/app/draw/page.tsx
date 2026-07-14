@@ -45,9 +45,7 @@ function DrawContent() {
         if (cancelled) return;
 
         if (res.status === 404 || data.code === "ROOM_NOT_FOUND") {
-          setRoomError("This room does not exist. You cannot join it.");
-        } else if (res.status === 403 || data.code === "ROOM_FORBIDDEN") {
-          setRoomError(data.error || "You do not have access to this room.");
+          setRoomError("This room does not exist. Ask the host for a valid room ID.");
         } else if (!res.ok) {
           setRoomError(data.error || "Unable to verify this room.");
         } else {

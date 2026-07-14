@@ -52,35 +52,26 @@ export function createApp(): Express {
   app.use("/api", generateRoutes);
   app.use("/api", projectRoutes);
 
-  // Helper function to check if a user has access to a room
-  async function hasRoomAccess(userId: string, roomId: number): Promise<boolean> {
+  /** Any authenticated user with a valid room ID may join and sync. */
+  async function hasRoomAccess(_userId: string, roomId: number): Promise<boolean> {
     const room = await getPrisma().room.findUnique({
       where: { id: roomId },
-      include: {
-        members: {
-          where: { userId }
-        }
-      }
+      select: { id: true },
     });
+    return !!room;
+  }
 
-    if (!room) return false;
-
-    // 1. Is admin (created the room)
-    if (room.adminId === userId) return true;
-
-    // 2. Is explicit room member
-    if (room.members.length > 0) return true;
-
-    // 3. Room is linked to a project in a workspace owned by the user
-    const projects = await getPrisma().project.findMany({
-      where: {
-        roomId,
-        workspace: { ownerId: userId }
-      }
-    });
-    if (projects.length > 0) return true;
-
-    return false;
+  /** Record joiner as a room member (idempotent) for presence / history. */
+  async function ensureRoomMember(userId: string, roomId: number): Promise<void> {
+    try {
+      await getPrisma().roomMember.upsert({
+        where: { roomId_userId: { roomId, userId } },
+        create: { roomId, userId },
+        update: {},
+      });
+    } catch (err) {
+      console.error("[http-backend] ensureRoomMember failed:", err);
+    }
   }
 
   app.post("/signup", async (req: Request, res: Response): Promise<void> => {
@@ -245,7 +236,7 @@ export function createApp(): Express {
     }
   });
 
-  /** Validate room exists (and caller may access it) before joining/drawing. */
+  /** Validate room exists before joining/drawing. Anyone with the ID may join. */
   app.get("/rooms/:roomId", middleware, async (req: Request, res: Response): Promise<void> => {
     // @ts-expect-error Added by middleware
     const userId: string = req.userId;
@@ -266,11 +257,7 @@ export function createApp(): Express {
       return;
     }
 
-    const allowed = await hasRoomAccess(userId, roomId);
-    if (!allowed) {
-      res.status(403).json({ error: "You do not have access to this room", code: "ROOM_FORBIDDEN" });
-      return;
-    }
+    await ensureRoomMember(userId, roomId);
 
     res.status(200).json({
       roomId: room.id,
