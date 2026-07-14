@@ -2394,7 +2394,7 @@ input:focus {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   TOOLBAR WRAPPER (main + props bar)
+   TOOLBAR WRAPPER
    ═══════════════════════════════════════════════════════════ */
 
 .draw-toolbar-wrapper {
@@ -2411,91 +2411,174 @@ input:focus {
   transform: none;
 }
 
-/* Properties bar (color swatches + stroke width) */
-.draw-props-bar {
+/* ═══════════════════════════════════════════════════════════
+   LEFT STROKE PROPERTIES PANEL (Excalidraw-style)
+   ═══════════════════════════════════════════════════════════ */
+
+.stroke-props-panel {
   position: absolute;
-  top: 52px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
+  top: 12px;
+  left: 12px;
+  z-index: 60;
+  width: 202px;
+  padding: 10px 12px 12px;
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 10px;
-  background: rgba(24, 24, 30, 0.85);
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(24, 24, 30, 0.92);
   border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  backdrop-filter: blur(20px) saturate(1.5);
+  border-radius: 12px;
+  backdrop-filter: blur(20px) saturate(1.4);
   box-shadow: var(--shadow-md);
   animation: fadeIn var(--duration-fast) var(--ease-out);
-  width: max-content;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
 }
 
-/* Color swatches */
-.color-swatches {
+.stroke-props-panel.is-dragging {
+  cursor: grabbing;
+  box-shadow: var(--shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.35));
+  opacity: 0.96;
+}
+
+.stroke-props-drag-handle {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 6px;
+  margin: -2px -4px 0;
+  padding: 4px 4px 2px;
+  cursor: grab;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: 6px;
 }
-.color-swatch {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: 2px solid transparent;
-  cursor: pointer;
+
+.stroke-props-drag-handle:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.stroke-props-panel.is-dragging .stroke-props-drag-handle {
+  cursor: grabbing;
+}
+
+.stroke-props-drag-handle svg {
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.stroke-props-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stroke-props-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.stroke-props-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.stroke-props-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   padding: 0;
-  transition: all var(--duration-fast) var(--ease-out);
-  backdrop-filter: none;
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
-  position: relative;
-  overflow: visible;
-}
-.color-swatch:hover {
-  transform: scale(1.2);
-  box-shadow: none;
-  border-color: rgba(255,255,255,0.3);
-}
-.color-swatch.active {
-  border-color: var(--accent-hover);
-  box-shadow: 0 0 0 2px var(--accent-subtle);
-  transform: scale(1.15);
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+  transition: transform var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
 
-/* Stroke width group */
-.stroke-width-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: 4px;
-  padding-left: 8px;
-  border-left: 1px solid var(--border);
+.stroke-props-swatch:hover {
+  transform: scale(1.08);
 }
-.stroke-width-btn {
-  width: 28px;
-  height: 28px;
+
+.stroke-props-swatch.active {
+  box-shadow:
+    0 0 0 2px rgba(24, 24, 30, 0.95),
+    0 0 0 3.5px var(--accent);
+}
+
+.stroke-props-custom {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+  cursor: pointer;
+  background:
+    conic-gradient(
+      from 90deg,
+      #ef4444,
+      #eab308,
+      #22c55e,
+      #3b82f6,
+      #a855f7,
+      #ef4444
+    );
+}
+
+.stroke-props-custom input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.stroke-props-widths {
+  display: flex;
+  gap: 4px;
+}
+
+.stroke-props-width-btn {
+  flex: 1;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0;
+  padding: 0 6px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
   background: transparent;
+  color: var(--text);
   cursor: pointer;
-  backdrop-filter: none;
-  transition: all var(--duration-fast) var(--ease-out);
+  transition: background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
 }
-.stroke-width-btn:hover {
+
+.stroke-props-width-btn:hover {
   background: var(--surface-hover);
-  transform: none;
-  box-shadow: none;
 }
-.stroke-width-btn.active {
-  background: var(--surface-active);
-  border-color: var(--border-hover);
+
+.stroke-props-width-btn.active {
+  background: var(--accent-subtle, rgba(99, 102, 241, 0.18));
+  border-color: rgba(99, 102, 241, 0.35);
 }
-.stroke-width-dot {
-  border-radius: 50%;
-  transition: all var(--duration-fast) var(--ease-out);
+
+.stroke-props-width-line {
+  display: block;
+  width: 100%;
+  max-width: 28px;
+  border-radius: 999px;
+  background: currentColor;
 }
 
 /* Disabled toolbar buttons */
@@ -3714,18 +3797,13 @@ input:focus {
     font-size: 0.9rem;
   }
 
-  /* ── Props bar (color + stroke) ── */
-  .draw-props-bar {
-    top: auto;
-    bottom: calc(44px + 0.5rem); /* above analysis bottom sheet */
-    left: 50%;
-    transform: translateX(-50%);
-    flex-wrap: wrap;
-    justify-content: center;
-    max-width: calc(100vw - 2rem);
-    width: max-content;
-    gap: 6px;
-    padding: 6px 10px;
+  /* ── Stroke props panel (left) ── */
+  .stroke-props-panel {
+    top: 8px;
+    left: 8px;
+    width: min(180px, calc(100vw - 1.5rem));
+    padding: 10px;
+    gap: 10px;
   }
 
   /* ── Viewport controls ── */
@@ -4012,15 +4090,15 @@ input:focus {
     margin: 0 2px !important;
   }
 
-  /* Props bar wraps into two rows */
-  .draw-props-bar {
-    gap: 4px;
-    padding: 5px 8px;
+  .stroke-props-panel {
+    width: min(160px, calc(100vw - 1rem));
+    padding: 8px;
   }
 
-  .color-swatch {
-    width: 17px;
-    height: 17px;
+  .stroke-props-swatch,
+  .stroke-props-custom {
+    width: 18px;
+    height: 18px;
   }
 
   /* Analysis panel bottom sheet – even more compact */

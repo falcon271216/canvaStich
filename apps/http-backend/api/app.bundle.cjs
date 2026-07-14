@@ -46800,6 +46800,33 @@ __export(email_exports, {
   sendWelcomeEmail: () => sendWelcomeEmail,
   transporter: () => transporter
 });
+async function sendViaResendApi(options) {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      from: options.from,
+      to: [options.to],
+      subject: options.subject,
+      html: options.html
+    })
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Resend API ${response.status}: ${body}`);
+  }
+}
+async function sendMail(options) {
+  try {
+    await sendViaResendApi(options);
+  } catch (apiErr) {
+    console.warn("[Email] Resend API failed, falling back to SMTP:", apiErr);
+    await transporter.sendMail(options);
+  }
+}
 async function sendWelcomeEmail(toEmail, name) {
   const mailOptions = {
     from: `SketchUI <welcome@${SENDER_DOMAIN}>`,
@@ -46819,7 +46846,7 @@ async function sendWelcomeEmail(toEmail, name) {
     `
   };
   try {
-    await transporter.sendMail(mailOptions);
+    await sendMail(mailOptions);
     console.log(`[Email] Welcome email sent to ${toEmail}`);
   } catch (err) {
     console.error(`[Email] Failed to send welcome email to ${toEmail}:`, err);
@@ -46852,7 +46879,7 @@ async function sendRoomInvitation({
     `
   };
   try {
-    await transporter.sendMail(mailOptions);
+    await sendMail(mailOptions);
     console.log(`[Email] Room invitation sent to ${toEmail}`);
   } catch (err) {
     console.error(`[Email] Failed to send room invitation to ${toEmail}:`, err);
@@ -46863,7 +46890,7 @@ async function sendOtpEmail(toEmail, name, otp) {
   const mailOptions = {
     from: `SketchUI Security <security@${SENDER_DOMAIN}>`,
     to: toEmail,
-    subject: `Your SketchUI Verification Code: ${otp} \u{1F510}`,
+    subject: `Your SketchUI Verification Code: ${otp}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; background: #0c0c0f; color: #fafafa;">
         <h2 style="color: #6366f1; margin-bottom: 1.5rem;">Confirm Your Email</h2>
@@ -46878,13 +46905,8 @@ async function sendOtpEmail(toEmail, name, otp) {
       </div>
     `
   };
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`[Email] OTP email sent to ${toEmail}`);
-  } catch (err) {
-    console.error(`[Email] Failed to send OTP email to ${toEmail}:`, err);
-    throw err;
-  }
+  await sendMail(mailOptions);
+  console.log(`[Email] OTP email sent to ${toEmail}`);
 }
 var import_nodemailer, RESEND_API_KEY, SENDER_DOMAIN, transporter;
 var init_email = __esm({
@@ -53501,19 +53523,18 @@ function createApp() {
           update: { otp: generatedOtp, expiresAt },
           create: { email: username, otp: generatedOtp, expiresAt }
         });
-        Promise.resolve().then(() => (init_email(), email_exports)).then(({ sendOtpEmail: sendOtpEmail2 }) => {
-          sendOtpEmail2(username, name, generatedOtp).catch((err) => {
-            console.error("OTP send error:", err);
-          });
-        });
+        const { sendOtpEmail: sendOtpEmail2 } = await Promise.resolve().then(() => (init_email(), email_exports));
+        await sendOtpEmail2(username, name, generatedOtp);
         res.status(200).json({
           otpRequired: true,
           message: "Verification code sent to your email. Please enter it to complete signup."
         });
         return;
       } catch (err) {
-        console.error("OTP upsert error:", err);
-        res.status(500).json({ error: "Failed to send verification code. Please try again." });
+        console.error("OTP send error:", err);
+        res.status(500).json({
+          error: "Failed to send verification code. Please try again in a moment."
+        });
         return;
       }
     }

@@ -9,6 +9,7 @@ import {
   type ShapeType,
 } from "../hooks/useCanvasManager";
 import DrawingToolSelector, { ToolType } from "./DrawingToolSelector";
+import StrokePropertiesPanel from "./StrokePropertiesPanel";
 import { Cpu, Zap, ArrowLeft, BarChart3, Radio, Users, User } from "lucide-react";
 import AnalysisPanel, { type AnalysisPanelHandle } from "./AnalysisPanel";
 import ChatPanel, { type ChatMessage } from "./ChatPanel";
@@ -1292,10 +1293,6 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           <DrawingToolSelector
             currentTool={tool}
             setToolAction={setTool}
-            color={color}
-            onColorChange={setColor}
-            strokeWidth={strokeWidth}
-            onStrokeWidthChange={setStrokeWidth}
             onUndo={handleUndo}
             onRedo={handleRedo}
             canUndo={canUndo}
@@ -1342,6 +1339,14 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         )}
 
         <div className="draw-board" ref={containerRef}>
+          {tool !== "eraser" && tool !== "select" && (
+            <StrokePropertiesPanel
+              color={color}
+              onColorChange={setColor}
+              strokeWidth={strokeWidth}
+              onStrokeWidthChange={setStrokeWidth}
+            />
+          )}
           <div
             ref={viewportRef}
             className={`draw-board-viewport${isSpaceDown ? " space-pressed" : ""}${isPanning ? " is-panning" : ""}${isPaletteDragOver ? " drag-over" : ""}`}
