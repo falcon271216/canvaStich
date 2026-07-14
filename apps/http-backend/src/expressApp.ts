@@ -102,7 +102,8 @@ export function createApp(): Express {
       return;
     }
 
-    // ── Case 1: Send OTP ──
+    // ── Case 1: Send / resend OTP ──
+    // Must await email on Vercel — fire-and-forget is killed when the function returns.
     if (!otp) {
       const generatedOtp = Math.floor(100000 + Math.random() * 900000).toString();
       const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes from now
@@ -114,21 +115,19 @@ export function createApp(): Express {
           create: { email: username, otp: generatedOtp, expiresAt },
         });
 
-        // Send OTP email asynchronously
-        import("./utils/email").then(({ sendOtpEmail }) => {
-          sendOtpEmail(username, name, generatedOtp).catch((err) => {
-            console.error("OTP send error:", err);
-          });
-        });
+        const { sendOtpEmail } = await import("./utils/email");
+        await sendOtpEmail(username, name, generatedOtp);
 
-        res.status(200).json({ 
-          otpRequired: true, 
-          message: "Verification code sent to your email. Please enter it to complete signup." 
+        res.status(200).json({
+          otpRequired: true,
+          message: "Verification code sent to your email. Please enter it to complete signup.",
         });
         return;
       } catch (err) {
-        console.error("OTP upsert error:", err);
-        res.status(500).json({ error: "Failed to send verification code. Please try again." });
+        console.error("OTP send error:", err);
+        res.status(500).json({
+          error: "Failed to send verification code. Please try again in a moment.",
+        });
         return;
       }
     }

@@ -12,6 +12,8 @@ import {
   Check,
   GitBranch,
   Scan,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
@@ -24,16 +26,25 @@ export default function HomePage() {
   const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [otpMessage, setOtpMessage] = useState("");
+  const [resendCooldown, setResendCooldown] = useState(0);
+  const [resending, setResending] = useState(false);
 
   // If already authenticated, redirect to projects
   useEffect(() => {
     const t = typeof window !== "undefined" ? localStorage.getItem("token") : null;
     if (t) window.location.replace("/projects");
   }, []);
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const id = window.setTimeout(() => setResendCooldown((s) => s - 1), 1000);
+    return () => window.clearTimeout(id);
+  }, [resendCooldown]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,6 +91,7 @@ export default function HomePage() {
       if (data.otpRequired) {
         setOtpSent(true);
         setOtpMessage(data.message || "OTP code sent to your email.");
+        setResendCooldown(60);
         setLoading(false);
         return;
       }
@@ -102,6 +114,33 @@ export default function HomePage() {
     }
   };
 
+  const handleResendOtp = async () => {
+    if (resending || resendCooldown > 0 || !username || !password) return;
+    setError("");
+    setOtpMessage("");
+    setResending(true);
+    try {
+      const res = await fetch(`${API}/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username,
+          password,
+          name: name || username,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to resend code");
+      setOtp("");
+      setOtpMessage(data.message || "A new verification code was sent to your email.");
+      setResendCooldown(60);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resend code");
+    } finally {
+      setResending(false);
+    }
+  };
+
   /* ═══════════ AUTH MODAL ═══════════ */
   const authModal = showAuth && (
     <div className="landing-auth-overlay" onClick={() => setShowAuth(false)}>
@@ -119,14 +158,14 @@ export default function HomePage() {
             <button
               type="button"
               className={`auth-tab ${tab === "signin" ? "active" : ""}`}
-              onClick={() => { setTab("signin"); setError(""); setOtpSent(false); setOtp(""); setOtpMessage(""); }}
+              onClick={() => { setTab("signin"); setError(""); setOtpSent(false); setOtp(""); setOtpMessage(""); setShowPassword(false); }}
             >
               Sign in
             </button>
             <button
               type="button"
               className={`auth-tab ${tab === "signup" ? "active" : ""}`}
-              onClick={() => { setTab("signup"); setError(""); setOtpSent(false); setOtp(""); setOtpMessage(""); }}
+              onClick={() => { setTab("signup"); setError(""); setOtpSent(false); setOtp(""); setOtpMessage(""); setShowPassword(false); }}
             >
               Create account
             </button>
@@ -154,14 +193,24 @@ export default function HomePage() {
               </div>
               <div className="form-group">
                 <label>Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  autoComplete="current-password"
-                />
+                <div className="password-input-wrap">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    autoComplete="current-password"
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
               <button
                 type="submit"
@@ -188,15 +237,26 @@ export default function HomePage() {
               </div>
               <div className="form-group">
                 <label>Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  required
-                  disabled={otpSent}
-                  autoComplete="new-password"
-                />
+                <div className="password-input-wrap">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    disabled={otpSent}
+                    autoComplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    className="password-toggle"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    disabled={otpSent}
+                  >
+                    {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
               </div>
               <div className="form-group">
                 <label>Display name</label>
@@ -228,6 +288,21 @@ export default function HomePage() {
                       {otpMessage}
                     </span>
                   )}
+                  <div className="otp-resend-row">
+                    <span>Didn&apos;t get the code?</span>
+                    <button
+                      type="button"
+                      className="otp-resend-btn"
+                      onClick={handleResendOtp}
+                      disabled={resending || resendCooldown > 0}
+                    >
+                      {resending
+                        ? "Sending…"
+                        : resendCooldown > 0
+                          ? `Resend in ${resendCooldown}s`
+                          : "Resend code"}
+                    </button>
+                  </div>
                 </div>
               )}
 

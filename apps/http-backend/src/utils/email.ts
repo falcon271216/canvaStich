@@ -13,6 +13,47 @@ export const transporter = nodemailer.createTransport({
   },
 });
 
+/** Prefer Resend HTTP API on serverless — SMTP often never finishes before the invoke ends. */
+async function sendViaResendApi(options: {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: options.from,
+      to: [options.to],
+      subject: options.subject,
+      html: options.html,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Resend API ${response.status}: ${body}`);
+  }
+}
+
+async function sendMail(options: {
+  from: string;
+  to: string;
+  subject: string;
+  html: string;
+}): Promise<void> {
+  try {
+    await sendViaResendApi(options);
+  } catch (apiErr) {
+    console.warn("[Email] Resend API failed, falling back to SMTP:", apiErr);
+    await transporter.sendMail(options);
+  }
+}
+
 export async function sendWelcomeEmail(toEmail: string, name: string): Promise<void> {
   const mailOptions = {
     from: `SketchUI <welcome@${SENDER_DOMAIN}>`,
@@ -33,7 +74,7 @@ export async function sendWelcomeEmail(toEmail: string, name: string): Promise<v
   };
 
   try {
-    await transporter.sendMail(mailOptions);
+    await sendMail(mailOptions);
     console.log(`[Email] Welcome email sent to ${toEmail}`);
   } catch (err) {
     console.error(`[Email] Failed to send welcome email to ${toEmail}:`, err);
@@ -73,7 +114,7 @@ export async function sendRoomInvitation({
   };
 
   try {
-    await transporter.sendMail(mailOptions);
+    await sendMail(mailOptions);
     console.log(`[Email] Room invitation sent to ${toEmail}`);
   } catch (err) {
     console.error(`[Email] Failed to send room invitation to ${toEmail}:`, err);
@@ -85,7 +126,7 @@ export async function sendOtpEmail(toEmail: string, name: string, otp: string): 
   const mailOptions = {
     from: `SketchUI Security <security@${SENDER_DOMAIN}>`,
     to: toEmail,
-    subject: `Your SketchUI Verification Code: ${otp} 🔐`,
+    subject: `Your SketchUI Verification Code: ${otp}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid rgba(255,255,255,0.06); border-radius: 8px; background: #0c0c0f; color: #fafafa;">
         <h2 style="color: #6366f1; margin-bottom: 1.5rem;">Confirm Your Email</h2>
@@ -101,11 +142,6 @@ export async function sendOtpEmail(toEmail: string, name: string, otp: string): 
     `,
   };
 
-  try {
-    await transporter.sendMail(mailOptions);
-    console.log(`[Email] OTP email sent to ${toEmail}`);
-  } catch (err) {
-    console.error(`[Email] Failed to send OTP email to ${toEmail}:`, err);
-    throw err;
-  }
+  await sendMail(mailOptions);
+  console.log(`[Email] OTP email sent to ${toEmail}`);
 }
