@@ -47,6 +47,14 @@ type BoardDetection = UIDetectionResult & {
   id: string;
   hidden?: boolean;
   compositeType?: string;
+  /** Higher = drawn/added later (shapes array index). */
+  drawOrder?: number;
+};
+
+type DetectedWithOrder = DetectedComponent & {
+  drawOrder?: number;
+  hidden?: boolean;
+  compositeType?: string;
 };
 
 export default function DrawingBoard({ roomId, token }: { roomId: string; token: string }) {
@@ -73,6 +81,10 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   const [autoGenerate, setAutoGenerate] = useState(false);
   const analysisPanelRef = useRef<AnalysisPanelHandle>(null);
   const [selectedComponentId, setSelectedComponentId] = useState<string | null>(null);
+  /** Manual type corrections survive re-detection (keyed by detection id and/or shape id). */
+  const typeOverridesRef = useRef<Map<string, UIComponentType>>(new Map());
+  const pendingSelectRef = useRef<{ type: UIComponentType; bbox: { x: number; y: number; width: number; height: number } } | null>(null);
+  const [lastDetectionAt, setLastDetectionAt] = useState<number | null>(null);
 
   /* ── Chat state ── */
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -458,9 +470,10 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
     }
 
     const canvasArea = 1600 * 900;
+    const shapeIndex = new Map(shapes.map((s, i) => [s.id, i] as const));
 
     // Step 1a: Classify each pencil stroke independently
-    const detectedFromPencil: DetectedComponent[] = pencilShapes.map((s, idx) => {
+    const detectedFromPencil: DetectedWithOrder[] = pencilShapes.map((s, idx) => {
       const path = (s.shapeData as any).path as { x: number; y: number; t?: number }[];
       if (!path || path.length < 5) {
         return null;
@@ -473,11 +486,12 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         boundingBox: result.boundingBox,
         strokes: [path],
         source: 'freehand',
-      } as DetectedComponent;
-    }).filter(Boolean) as DetectedComponent[];
+        drawOrder: shapeIndex.get(s.id) ?? idx,
+      } as DetectedWithOrder;
+    }).filter(Boolean) as DetectedWithOrder[];
 
     // Step 1b: Add wireframe (palette-dropped) shapes as pre-classified components
-    const detectedFromWireframe: (DetectedComponent & { hidden?: boolean; compositeType?: string })[] =
+    const detectedFromWireframe: DetectedWithOrder[] =
       wireframeShapes.map((s, idx) => {
         const data = s.shapeData as WireframeShapeData;
         if (!data.wireframeType || data.x == null) return null;
@@ -492,16 +506,19 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           source: "palette",
           hidden: isChild,
           compositeType: data.groupRoot ? compositeType : undefined,
-        } as DetectedComponent & { hidden?: boolean; compositeType?: string };
-      }).filter(Boolean) as (DetectedComponent & { hidden?: boolean; compositeType?: string })[];
+          drawOrder: shapeIndex.get(s.id) ?? idx,
+        } as DetectedWithOrder;
+      }).filter(Boolean) as DetectedWithOrder[];
 
     // Step 2: Cluster nearby components (ONLY freehand strokes)
     const groups = clusterComponents(detectedFromPencil, 50);
 
     // Step 3: Re-classify clustered groups (multi-stroke components)
-    const mergedComponents: DetectedComponent[] = groups.map((group, gIdx) => {
+    const mergedComponents: DetectedWithOrder[] = groups.map((group, gIdx) => {
+      const members = group.components as DetectedWithOrder[];
+      const drawOrder = Math.max(...members.map((c) => c.drawOrder ?? 0), 0);
       if (group.components.length === 1) {
-        return group.components[0]!;
+        return { ...members[0]!, drawOrder };
       }
       // Re-classify the merged strokes
       const allStrokes = group.components.flatMap(c => c.strokes);
@@ -513,36 +530,64 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
         boundingBox: result.boundingBox,
         strokes: allStrokes,
         source: 'freehand',
+        drawOrder,
       };
     });
 
     // Step 4: Composite wireframe symbol analysis (v2)
     // Multi-stroke clusters get checked for known wireframe patterns
     // (rect+X = image, hamburger = nav, stacked rects = list, etc.)
-    const upgradedComponents = upgradeWithCompositeSymbols(mergedComponents);
+    const upgradedComponents = upgradeWithCompositeSymbols(mergedComponents) as DetectedWithOrder[];
     // Combine freehand ML components with perfect palette components
     const finalComponents = [...upgradedComponents, ...detectedFromWireframe];
 
-    // Step 5: Build detection results for the panel
-    const detResults: BoardDetection[] = finalComponents.map((c) => ({
-      id: c.id,
-      type: c.type,
-      confidence: c.confidence,
-      boundingBox: c.boundingBox,
-      method: c.source === "palette" ? ("palette" as const) : ("ensemble" as const),
-      allScores: [],
-      source: c.source,
-      hidden: (c as { hidden?: boolean }).hidden,
-      compositeType: (c as { compositeType?: string }).compositeType,
-    }));
+    // Step 5: Build detection results for the panel (apply manual type overrides)
+    // Newest drawn first (last drawn at top of Detection list)
+    const detResults: BoardDetection[] = finalComponents
+      .map((c) => {
+        const bboxKey = `bbox:${Math.round(c.boundingBox.x)}:${Math.round(c.boundingBox.y)}:${Math.round(c.boundingBox.width)}:${Math.round(c.boundingBox.height)}`;
+        const override =
+          typeOverridesRef.current.get(c.id) ?? typeOverridesRef.current.get(bboxKey);
+        return {
+          id: c.id,
+          type: override ?? c.type,
+          confidence: override ? 1 : c.confidence,
+          boundingBox: c.boundingBox,
+          method: c.source === "palette" ? ("palette" as const) : ("ensemble" as const),
+          allScores: [],
+          source: c.source,
+          hidden: c.hidden,
+          compositeType: c.compositeType,
+          drawOrder: c.drawOrder ?? 0,
+        };
+      })
+      .sort((a, b) => (b.drawOrder ?? 0) - (a.drawOrder ?? 0));
     setDetections(detResults);
+    setLastDetectionAt(Date.now());
 
-    // Step 6: Build layout tree
+    // Step 6: Build layout tree (use overridden types for codegen)
     if (finalComponents.length > 0) {
-      const tree = buildContainmentTree(finalComponents);
+      const typedComponents = finalComponents.map((c) => {
+        const match = detResults.find((d) => d.id === c.id);
+        return match ? { ...c, type: match.type, confidence: match.confidence } : c;
+      });
+      const tree = buildContainmentTree(typedComponents);
       setLayoutTree(tree);
     } else {
       setLayoutTree(null);
+    }
+
+    const pending = pendingSelectRef.current;
+    if (pending) {
+      pendingSelectRef.current = null;
+      const match = detResults.find(
+        (d) =>
+          !d.hidden &&
+          d.type === pending.type &&
+          Math.abs(d.boundingBox.x - pending.bbox.x) < 4 &&
+          Math.abs(d.boundingBox.y - pending.bbox.y) < 4,
+      );
+      if (match) setSelectedComponentId(match.id);
     }
   }, [shapes]);
 
@@ -579,12 +624,119 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   }, [runDetectionPipeline]);
 
   const handleUpdateNodeType = useCallback((nodeId: string, newType: UIComponentType) => {
+    const det = detections.find((d) => d.id === nodeId);
+    const bboxKey = det
+      ? `bbox:${Math.round(det.boundingBox.x)}:${Math.round(det.boundingBox.y)}:${Math.round(det.boundingBox.width)}:${Math.round(det.boundingBox.height)}`
+      : null;
+
+    typeOverridesRef.current.set(nodeId, newType);
+    if (bboxKey) typeOverridesRef.current.set(bboxKey, newType);
+
+    setDetections((prev) =>
+      prev.map((d) => (d.id === nodeId ? { ...d, type: newType, confidence: 1 } : d)),
+    );
+    setLastDetectionAt(Date.now());
+
     if (layoutTree) {
       const updatedTree = JSON.parse(JSON.stringify(layoutTree)) as LayoutNode;
       updateNodeType(updatedTree, nodeId, newType);
       setLayoutTree(updatedTree);
     }
-  }, [layoutTree]);
+
+    // Palette / wireframe: persist type on the shape
+    if (nodeId.startsWith("wf_") && det) {
+      const wfIdx = parseInt(nodeId.replace("wf_", ""), 10);
+      setShapes((prev) => {
+        let count = 0;
+        return prev.map((s) => {
+          if (s.shapeType !== "wireframe") return s;
+          if (count++ !== wfIdx) return s;
+          const data = s.shapeData as WireframeShapeData;
+          const nextData = { ...data, wireframeType: newType };
+          sendDrawEvent("wireframe" as ShapeType, { ...nextData, __id: s.id });
+          return { ...s, shapeData: nextData };
+        });
+      });
+      return;
+    }
+
+    // Freehand: stamp a clean wireframe of the chosen type so recognition sticks
+    if (det && (nodeId.startsWith("comp_") || nodeId.startsWith("merged_"))) {
+      const bx = det.boundingBox.x;
+      const by = det.boundingBox.y;
+      const bw = det.boundingBox.width;
+      const bh = det.boundingBox.height;
+
+      const pathInBBox = (path: { x: number; y: number }[]) => {
+        if (!path.length) return false;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const p of path) {
+          minX = Math.min(minX, p.x);
+          minY = Math.min(minY, p.y);
+          maxX = Math.max(maxX, p.x);
+          maxY = Math.max(maxY, p.y);
+        }
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+        return cx >= bx && cx <= bx + bw && cy >= by && cy <= by + bh;
+      };
+
+      const wireframeId = createShapeId();
+      const wireframeData: Record<string, unknown> = {
+        wireframeType: newType,
+        x: bx,
+        y: by,
+        w: Math.max(bw, 20),
+        h: Math.max(bh, 12),
+        stroke: "#64748b",
+        lineWidth: 1.5,
+      };
+
+      pendingSelectRef.current = {
+        type: newType,
+        bbox: { x: bx, y: by, width: bw, height: bh },
+      };
+
+      setShapes((prev) => {
+        const removedIds: string[] = [];
+        const next = prev.filter((s) => {
+          if (s.shapeType !== "pencil") return true;
+          const path = (s.shapeData as { path?: { x: number; y: number }[] }).path;
+          if (path && pathInBBox(path)) {
+            removedIds.push(s.id);
+            return false;
+          }
+          // Also match by index for single-stroke detections
+          return true;
+        });
+
+        // Fallback for comp_N: remove Nth pencil if nothing matched by bbox
+        let shapesAfter = next;
+        if (removedIds.length === 0 && nodeId.startsWith("comp_")) {
+          const idx = parseInt(nodeId.replace("comp_", ""), 10);
+          let p = 0;
+          shapesAfter = prev.filter((s) => {
+            if (s.shapeType !== "pencil") return true;
+            if (p++ === idx) {
+              removedIds.push(s.id);
+              return false;
+            }
+            return true;
+          });
+        }
+
+        if (removedIds.length > 0) {
+          sendDrawEvent("clear_shape", { shapeIds: removedIds });
+        }
+
+        sendDrawEvent("wireframe" as ShapeType, { ...wireframeData, __id: wireframeId });
+        return [
+          ...shapesAfter,
+          { id: wireframeId, shapeType: "wireframe" as ShapeType, shapeData: wireframeData },
+        ];
+      });
+    }
+  }, [detections, layoutTree, sendDrawEvent]);
 
   /* ── Shape completion: freehand → wireframe replacement ── */
   const handleShapeCompleted = useCallback(
@@ -1453,6 +1605,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
                   }}
                   onDelete={handleDeleteComponent}
                   onDuplicate={handleDuplicateComponent}
+                  onChangeType={handleUpdateNodeType}
                   zoom={viewport.zoom}
                 />
               )}
@@ -1549,6 +1702,7 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
           onToggleCollapse={() => setAnalysisPanelCollapsed(prev => !prev)}
           width={analysisPanelWidth}
           roomId={roomId}
+          lastDetectionAt={lastDetectionAt}
         />
       </div>
 

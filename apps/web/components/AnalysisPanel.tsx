@@ -25,6 +25,7 @@ interface AnalysisPanelProps {
   onToggleCollapse?: () => void;
   width?: number;
   roomId?: string;
+  lastDetectionAt?: number | null;
 }
 
 export interface AnalysisPanelHandle {
@@ -53,6 +54,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
     onToggleCollapse,
     width = 320,
     roomId,
+    lastDetectionAt = null,
   },
   ref,
 ) {
@@ -134,6 +136,7 @@ const AnalysisPanel = forwardRef<AnalysisPanelHandle, AnalysisPanelProps>(functi
             selectedId={selectedComponentId}
             onSelectComponent={onSelectComponent}
             onUpdateNodeType={onUpdateNodeType}
+            lastUpdatedAt={lastDetectionAt}
           />
         )}
         {activeTab === "tree" && (

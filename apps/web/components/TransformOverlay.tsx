@@ -1,5 +1,11 @@
-import React, { useCallback, useEffect, useRef } from "react";
-import type { UIDetectionResult } from "@repo/pattern-detection";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { UIComponentType, UIDetectionResult } from "@repo/pattern-detection";
+import {
+  UI_COMPONENT_DISPLAY_NAMES,
+  UI_COMPONENT_ICONS,
+  UI_COMPONENT_LABELS,
+} from "@repo/pattern-detection";
 import {
   cyclePickId,
   detectionsAtPoint,
@@ -29,6 +35,7 @@ interface TransformOverlayProps {
   onOpenAnnotation: (id: string) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
+  onChangeType: (id: string, newType: UIComponentType) => void;
   clientToWorld: (clientX: number, clientY: number) => { x: number; y: number };
   zoom?: number;
 }
@@ -41,6 +48,7 @@ export function TransformOverlay({
   onOpenAnnotation,
   onDelete,
   onDuplicate,
+  onChangeType,
   clientToWorld,
   zoom = 1,
 }: TransformOverlayProps) {
@@ -53,6 +61,53 @@ export function TransformOverlay({
   const clientToWorldRef = useRef(clientToWorld);
   clientToWorldRef.current = clientToWorld;
   const pickSessionRef = useRef<{ x: number; y: number; ids: string[]; index: number } | null>(null);
+  const [typeMenuOpen, setTypeMenuOpen] = useState(false);
+  const [typeMenuPos, setTypeMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const typeBtnRef = useRef<HTMLButtonElement | null>(null);
+  const typeMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setTypeMenuOpen(false);
+    setTypeMenuPos(null);
+  }, [selectedId]);
+
+  useLayoutEffect(() => {
+    if (!typeMenuOpen || !typeBtnRef.current) {
+      setTypeMenuPos(null);
+      return;
+    }
+    const updatePos = () => {
+      const rect = typeBtnRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const menuWidth = 220;
+      const menuHeight = Math.min(280, window.innerHeight - 16);
+      let left = rect.right - menuWidth;
+      let top = rect.bottom + 6;
+      left = Math.max(8, Math.min(left, window.innerWidth - menuWidth - 8));
+      if (top + menuHeight > window.innerHeight - 8) {
+        top = Math.max(8, rect.top - menuHeight - 6);
+      }
+      setTypeMenuPos({ top, left });
+    };
+    updatePos();
+    window.addEventListener("resize", updatePos);
+    window.addEventListener("scroll", updatePos, true);
+    return () => {
+      window.removeEventListener("resize", updatePos);
+      window.removeEventListener("scroll", updatePos, true);
+    };
+  }, [typeMenuOpen, selectedId, zoom]);
+
+  useEffect(() => {
+    if (!typeMenuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (typeMenuRef.current?.contains(t) || typeBtnRef.current?.contains(t)) return;
+      setTypeMenuOpen(false);
+    };
+    window.addEventListener("pointerdown", onPointerDown);
+    return () => window.removeEventListener("pointerdown", onPointerDown);
+  }, [typeMenuOpen]);
 
   const handleGlobalPointerMove = useCallback((e: PointerEvent) => {
     const tf = activeTransform.current;
@@ -148,6 +203,7 @@ export function TransformOverlay({
   ) => {
     e.stopPropagation();
     e.preventDefault();
+    setTypeMenuOpen(false);
     activeTransform.current = {
       id,
       mode: "drag",
@@ -167,6 +223,7 @@ export function TransformOverlay({
   ) => {
     e.stopPropagation();
     e.preventDefault();
+    setTypeMenuOpen(false);
     onSelect(id);
     activeTransform.current = {
       id,
@@ -198,6 +255,8 @@ export function TransformOverlay({
   const handleHalf = 8 / zoom;
   const handleSize = handleHalf * 2;
   const strokeScale = 1.5 / zoom;
+  const toolbarW = 128 / zoom;
+  const toolbarH = 30 / zoom;
 
   const hasOverlappingSelection = selectedComponent
     ? interactiveDetections.some((other) => {
@@ -213,7 +272,82 @@ export function TransformOverlay({
       })
     : false;
 
+  const typeMenuPortal =
+    typeMenuOpen &&
+    typeMenuPos &&
+    selectedComponent &&
+    typeof document !== "undefined" &&
+    createPortal(
+      <div
+        ref={typeMenuRef}
+        className="selection-type-menu"
+        style={{
+          position: "fixed",
+          top: typeMenuPos.top,
+          left: typeMenuPos.left,
+          width: 220,
+          maxHeight: Math.min(280, window.innerHeight - 16),
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          zIndex: 400,
+          background: "#111827",
+          border: "1px solid #374151",
+          borderRadius: 8,
+          padding: 6,
+          boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
+        }}
+        onWheel={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            fontSize: 10,
+            color: "#9ca3af",
+            padding: "2px 6px 6px",
+            fontWeight: 600,
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+          }}
+        >
+          Change type
+        </div>
+        {UI_COMPONENT_LABELS.map((type) => {
+          const active = selectedComponent.type === type;
+          return (
+            <button
+              key={type}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChangeType(selectedComponent.id, type);
+                setTypeMenuOpen(false);
+              }}
+              style={{
+                display: "flex",
+                width: "100%",
+                alignItems: "center",
+                gap: 8,
+                padding: "6px 8px",
+                border: "none",
+                borderRadius: 6,
+                background: active ? "rgba(37, 99, 235, 0.25)" : "transparent",
+                color: active ? "#93c5fd" : "#e5e7eb",
+                fontSize: 12,
+                textAlign: "left",
+                cursor: "pointer",
+              }}
+            >
+              <span style={{ width: 18 }}>{UI_COMPONENT_ICONS[type]}</span>
+              <span>{UI_COMPONENT_DISPLAY_NAMES[type]}</span>
+            </button>
+          );
+        })}
+      </div>,
+      document.body,
+    );
+
   return (
+    <>
     <svg
       className="transform-overlay-svg"
       style={{ position: "absolute", left: 0, top: 0, width: 1, height: 1, overflow: "visible", pointerEvents: "none", zIndex: 10 }}
@@ -250,7 +384,6 @@ export function TransformOverlay({
         );
       })()}
 
-      {/* Hit targets above visuals: smallest on top for overlapping picks */}
       <g className="transform-hit-layer" style={{ pointerEvents: "all" }}>
         {hitLayer.map((det) => {
           const { x, y, width, height } = det.boundingBox;
@@ -284,6 +417,9 @@ export function TransformOverlay({
           { id: "w", cx: x, cy: y + height / 2, cursor: "w-resize" },
         ];
 
+        const menuLeft = x + width - toolbarW;
+        const menuTop = y - 34 / zoom;
+
         return (
           <g className="selection-overlay-controls" style={{ pointerEvents: "all" }}>
             {handles.map((h) => (
@@ -303,18 +439,51 @@ export function TransformOverlay({
             ))}
 
             <foreignObject
-              x={x + width - 90 / zoom}
-              y={y - 34 / zoom}
-              width={100 / zoom}
-              height={30 / zoom}
+              x={menuLeft}
+              y={menuTop}
+              width={toolbarW}
+              height={toolbarH}
               style={{ pointerEvents: "all", overflow: "visible" }}
             >
-              <div style={{ display: "flex", gap: "4px", justifyContent: "flex-end" }}>
+              <div
+                className="selection-action-bar"
+                style={{
+                  display: "flex",
+                  gap: "4px",
+                  justifyContent: "flex-end",
+                  transform: `scale(${1 / zoom})`,
+                  transformOrigin: "top right",
+                  width: 128,
+                }}
+              >
+                <button
+                  ref={typeBtnRef}
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTypeMenuOpen((v) => !v);
+                  }}
+                  style={{
+                    background: typeMenuOpen ? "#2563EB" : "#1f2937",
+                    color: "white",
+                    fontSize: "12px",
+                    padding: "4px 6px",
+                    borderRadius: "4px",
+                    border: "none",
+                    cursor: "pointer",
+                    lineHeight: 1,
+                  }}
+                  title="Change component type"
+                >
+                  🏷️
+                </button>
                 <button
                   type="button"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
+                    setTypeMenuOpen(false);
                     onOpenAnnotation(selectedComponent.id);
                   }}
                   style={{ background: "#1f2937", color: "white", fontSize: "12px", padding: "4px 6px", borderRadius: "4px", border: "none", cursor: "pointer", lineHeight: 1 }}
@@ -327,6 +496,7 @@ export function TransformOverlay({
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
+                    setTypeMenuOpen(false);
                     onDuplicate(selectedComponent.id);
                   }}
                   style={{ background: "#1f2937", color: "white", fontSize: "12px", padding: "4px 6px", borderRadius: "4px", border: "none", cursor: "pointer", lineHeight: 1 }}
@@ -339,6 +509,7 @@ export function TransformOverlay({
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
+                    setTypeMenuOpen(false);
                     onDelete(selectedComponent.id);
                   }}
                   style={{ background: "#dc2626", color: "white", fontSize: "12px", padding: "4px 6px", borderRadius: "4px", border: "none", cursor: "pointer", lineHeight: 1 }}
@@ -352,5 +523,7 @@ export function TransformOverlay({
         );
       })()}
     </svg>
+    {typeMenuPortal}
+    </>
   );
 }
