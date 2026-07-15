@@ -78,7 +78,7 @@ const THEMES: { id: DesignTheme; label: string; color: string }[] = [
   { id: "dark-premium",  label: "Dark Premium",   color: "#D4AF37" },
 ];
 
-/* ────────────────────── progress step labels ────────────────────── */
+/* ────────────────────── progress / engagement ────────────────────── */
 
 const PURPOSE_SUGGESTIONS = [
   "Weather app",
@@ -91,13 +91,24 @@ const PURPOSE_SUGGESTIONS = [
   "Banking app",
 ];
 
-const PROGRESS_STEPS = [
-  { label: "Analyzing wireframe structure...", progress: 10 },
-  { label: "Mapping sketch positions...", progress: 25 },
-  { label: "Applying purpose theme...", progress: 40 },
-  { label: "Generating UI with AI...", progress: 60 },
-  { label: "Polishing output...", progress: 85 },
-  { label: "Done! ✨", progress: 100 },
+/** Early-phase labels (first ~few seconds). After that, rotate WAIT_TIPS. */
+const EARLY_STEPS = [
+  "Analyzing wireframe structure…",
+  "Mapping sketch positions…",
+  "Applying purpose theme…",
+  "Handing off to AI…",
+];
+
+/** Rotate while waiting on Gemini — keeps the wait feeling active. */
+const WAIT_TIPS = [
+  "AI is sketching your layout into real UI…",
+  "Matching labels & copy to your purpose…",
+  "Keeping boxes where you drew them (~90%)…",
+  "Picking colors from your design theme…",
+  "Polishing typography & spacing…",
+  "Almost there — wiring up the final details…",
+  "Good sketches make great code. Sit tight…",
+  "Brewing premium CSS — espresso-strength…",
 ];
 
 /* ────────────────────── new tab preview ────────────────────── */
@@ -138,9 +149,14 @@ export default function CodeExportPanel({
   const autoGenRef = useRef(false);
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
 
-  /* ── Progress state (Layer 7) ── */
-  const [progressStep, setProgressStep] = useState(0);
+  /* ── Progress / engagement state ── */
   const [showProgress, setShowProgress] = useState(false);
+  const [displayProgress, setDisplayProgress] = useState(0);
+  const [statusLabel, setStatusLabel] = useState(EARLY_STEPS[0]!);
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [tipIndex, setTipIndex] = useState(0);
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const progressStartRef = useRef(0);
 
   /* ── Full preview modal (Layer 6) ── */
   const [showFullPreview, setShowFullPreview] = useState(false);
@@ -166,13 +182,40 @@ export default function CodeExportPanel({
     setState("generating");
     setErrorMsg("");
     setShowProgress(true);
-    setProgressStep(0);
+    setDisplayProgress(0);
+    setElapsedSec(0);
+    setTipIndex(0);
+    setStatusLabel(EARLY_STEPS[0]!);
+    progressStartRef.current = Date.now();
 
-    // Simulate progress steps
-    const progressTimers: ReturnType<typeof setTimeout>[] = [];
-    progressTimers.push(setTimeout(() => setProgressStep(1), 300));
-    progressTimers.push(setTimeout(() => setProgressStep(2), 700));
-    progressTimers.push(setTimeout(() => setProgressStep(3), 1200));
+    // Asymptotic progress: creeps toward ~92% so the bar never feels stuck
+    const tickProgress = () => {
+      const elapsed = Date.now() - progressStartRef.current;
+      // Ease toward 92% over ~45s: 1 - e^(-t/τ)
+      const pct = Math.min(92, (1 - Math.exp(-elapsed / 14000)) * 92);
+      setDisplayProgress(pct);
+      setElapsedSec(Math.floor(elapsed / 1000));
+
+      // Early discrete labels (first ~4s), then rotate tips
+      if (elapsed < 900) setStatusLabel(EARLY_STEPS[0]!);
+      else if (elapsed < 1800) setStatusLabel(EARLY_STEPS[1]!);
+      else if (elapsed < 2800) setStatusLabel(EARLY_STEPS[2]!);
+      else if (elapsed < 4000) setStatusLabel(EARLY_STEPS[3]!);
+      else {
+        const tipIdx = Math.floor((elapsed - 4000) / 3500) % WAIT_TIPS.length;
+        setTipIndex(tipIdx);
+        setStatusLabel(WAIT_TIPS[tipIdx]!);
+      }
+    };
+    tickProgress();
+    progressTimerRef.current = setInterval(tickProgress, 120);
+
+    const stopProgressLoop = () => {
+      if (progressTimerRef.current != null) {
+        clearInterval(progressTimerRef.current);
+        progressTimerRef.current = null;
+      }
+    };
 
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
@@ -198,14 +241,14 @@ export default function CodeExportPanel({
       if (res.status === 403) {
         const errData = await res.json().catch(() => ({}));
         if (errData.workspaceId) {
+          stopProgressLoop();
+          setShowProgress(false);
           setUpgradeWorkspaceId(errData.workspaceId);
           setShowUpgradeModal(true);
           setState("idle");
           return;
         }
       }
-
-      setProgressStep(4);
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: "Request failed" }));
@@ -218,8 +261,14 @@ export default function CodeExportPanel({
       const effectiveFramework = framework === "react" && looksHtml ? "html" : framework;
       const code =
         effectiveFramework === "react" ? cleanReactCodeForPreview(rawCode) : rawCode;
-      setProgressStep(5);
-      await new Promise(r => setTimeout(r, 400));
+
+      stopProgressLoop();
+      setStatusLabel("Polishing output…");
+      setDisplayProgress(96);
+      await new Promise((r) => setTimeout(r, 350));
+      setStatusLabel("Done! ✨");
+      setDisplayProgress(100);
+      await new Promise((r) => setTimeout(r, 280));
 
       setGeneratedCode(code);
       setGeneratedFramework(effectiveFramework);
@@ -236,9 +285,9 @@ export default function CodeExportPanel({
       setState("error");
       setErrorMsg(err?.message || "Generation failed. Please try again.");
     } finally {
+      stopProgressLoop();
       setShowProgress(false);
-      setProgressStep(0);
-      progressTimers.forEach(clearTimeout);
+      setDisplayProgress(0);
     }
   }, [layoutTree, theme, framework, componentName, canvasWidth, canvasHeight, apiBase, onGenerationComplete, annotations, roomId, purpose]);
 
@@ -290,6 +339,15 @@ export default function CodeExportPanel({
       setIsUpgrading(false);
     }
   };
+
+  // Cleanup progress timer on unmount
+  useEffect(() => {
+    return () => {
+      if (progressTimerRef.current != null) {
+        clearInterval(progressTimerRef.current);
+      }
+    };
+  }, []);
 
   // Auto-generate on mount when triggered from AutoDraw — ask purpose first
   useEffect(() => {
@@ -364,27 +422,51 @@ export default function CodeExportPanel({
     );
   }
 
-  const currentProgress = PROGRESS_STEPS[progressStep] || PROGRESS_STEPS[0]!;
-
   return (
     <div className="code-panel">
-      {/* ── Progress overlay (Layer 7) ── */}
+      {/* ── Engaging generation overlay ── */}
       {showProgress && (
-        <div className="autodraw-progress-overlay">
-          <div className="autodraw-progress-card">
-            <div className="autodraw-progress-icon">✨</div>
-            <div className="autodraw-progress-step">
-              {currentProgress.label}
+        <div className="autodraw-progress-overlay" role="status" aria-live="polite">
+          <div className="autodraw-progress-card gen-engage-card">
+            {/* Mini “building UI” skeleton — visual engagement trick */}
+            <div className="gen-skeleton" aria-hidden>
+              <div className="gen-skeleton-nav" />
+              <div className="gen-skeleton-body">
+                <div className={`gen-skeleton-block tall ${tipIndex % 3 === 0 ? "lit" : ""}`} />
+                <div className="gen-skeleton-col">
+                  <div className={`gen-skeleton-block ${tipIndex % 3 === 1 ? "lit" : ""}`} />
+                  <div className={`gen-skeleton-block short ${tipIndex % 3 === 2 ? "lit" : ""}`} />
+                  <div className="gen-skeleton-row">
+                    <div className="gen-skeleton-pill" />
+                    <div className="gen-skeleton-pill narrow" />
+                  </div>
+                </div>
+              </div>
+              <div className="gen-skeleton-shimmer" />
             </div>
-            <div className="autodraw-progress-bar-bg">
+
+            <div className="autodraw-progress-icon gen-engage-icon">✨</div>
+            <div className="autodraw-progress-step gen-engage-step">{statusLabel}</div>
+
+            <div className="autodraw-progress-bar-bg gen-engage-bar-bg">
               <div
-                className="autodraw-progress-bar-fill"
-                style={{ width: `${currentProgress.progress}%` }}
+                className="autodraw-progress-bar-fill gen-engage-bar-fill"
+                style={{ width: `${Math.round(displayProgress)}%` }}
               />
             </div>
-            <div className="autodraw-progress-percent">
-              {currentProgress.progress}%
+
+            <div className="gen-engage-meta">
+              <span className="autodraw-progress-percent">{Math.round(displayProgress)}%</span>
+              <span className="gen-engage-elapsed">
+                {elapsedSec < 1 ? "just started" : `${elapsedSec}s elapsed`}
+              </span>
             </div>
+
+            {elapsedSec >= 8 && (
+              <p className="gen-engage-hint">
+                Premium generation usually takes 15–40s — hang tight.
+              </p>
+            )}
           </div>
         </div>
       )}

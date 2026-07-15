@@ -3925,6 +3925,166 @@ input:focus {
   font-weight: 500;
 }
 
+/* ── Generation engagement overlay extras ── */
+
+.gen-engage-card {
+  width: min(420px, calc(100vw - 2rem));
+  position: relative;
+  overflow: hidden;
+}
+
+.gen-engage-icon {
+  margin-top: 8px;
+  margin-bottom: 10px;
+}
+
+.gen-engage-step {
+  min-height: 1.4em;
+  transition: opacity 0.25s ease;
+}
+
+.gen-engage-bar-bg {
+  position: relative;
+  overflow: hidden;
+}
+
+.gen-engage-bar-fill {
+  background: linear-gradient(90deg, #6366f1, #a855f7, #6366f1);
+  background-size: 200% 100%;
+  animation: genBarShimmer 2s linear infinite;
+  transition: width 0.2s ease-out;
+}
+
+@keyframes genBarShimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+.gen-engage-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.gen-engage-elapsed {
+  color: #52525b;
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.gen-engage-hint {
+  margin: 14px 0 0;
+  color: #71717a;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  animation: genHintIn 0.35s ease-out;
+}
+
+@keyframes genHintIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Fake UI skeleton that “builds” while waiting */
+.gen-skeleton {
+  position: relative;
+  height: 112px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 10px;
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+
+.gen-skeleton-nav {
+  height: 10px;
+  width: 42%;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-bottom: 10px;
+  animation: genBlockIn 0.5s ease-out both;
+}
+
+.gen-skeleton-body {
+  display: flex;
+  gap: 8px;
+  height: calc(100% - 20px);
+}
+
+.gen-skeleton-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gen-skeleton-block {
+  flex: 1;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  transition: background 0.45s ease, box-shadow 0.45s ease;
+  animation: genBlockIn 0.6s ease-out both;
+}
+
+.gen-skeleton-block.tall {
+  flex: 1.35;
+  animation-delay: 0.05s;
+}
+
+.gen-skeleton-block.short {
+  flex: 0.7;
+  animation-delay: 0.15s;
+}
+
+.gen-skeleton-block.lit {
+  background: rgba(99, 102, 241, 0.28);
+  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.25);
+}
+
+.gen-skeleton-row {
+  display: flex;
+  gap: 6px;
+  animation: genBlockIn 0.7s ease-out 0.2s both;
+}
+
+.gen-skeleton-pill {
+  height: 8px;
+  flex: 1;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.gen-skeleton-pill.narrow {
+  flex: 0.45;
+  background: rgba(168, 85, 247, 0.35);
+}
+
+.gen-skeleton-shimmer {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.06) 45%,
+    transparent 60%
+  );
+  background-size: 200% 100%;
+  animation: genSkeletonSweep 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes genSkeletonSweep {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@keyframes genBlockIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    RESPONSIVE – TABLET (≤ 1024px)
