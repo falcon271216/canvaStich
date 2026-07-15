@@ -413,15 +413,32 @@ router.get("/usage", middleware, async (req: Request, res: Response): Promise<vo
   }
 });
 
+// Temporary subscription gate until payment is integrated.
+// Paid upgrades (pro/team) require this coupon; free downgrades do not.
+const UPGRADE_COUPON = (process.env.UPGRADE_COUPON_CODE || "271216").trim();
+
 // POST /api/workspaces/:id/upgrade — Upgrade workspace plan (subscription model)
 router.post("/workspaces/:id/upgrade", middleware, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).userId as string;
-    const { plan } = req.body;
+    const { plan, coupon } = req.body;
 
     if (!["pro", "team", "free"].includes(plan)) {
       res.status(400).json({ error: "Invalid plan type" });
       return;
+    }
+
+    // Paid plans: require a valid coupon (payment placeholder)
+    if (plan === "pro" || plan === "team") {
+      const provided = typeof coupon === "string" ? coupon.trim() : "";
+      if (!provided) {
+        res.status(403).json({ error: "Coupon code is required to upgrade. Enter a valid coupon to continue." });
+        return;
+      }
+      if (provided !== UPGRADE_COUPON) {
+        res.status(403).json({ error: "Invalid coupon code. Please check your code and try again." });
+        return;
+      }
     }
 
     const workspace = await getPrisma().workspace.findFirst({

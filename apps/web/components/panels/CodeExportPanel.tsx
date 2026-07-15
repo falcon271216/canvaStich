@@ -166,6 +166,8 @@ export default function CodeExportPanel({
   const [upgradeWorkspaceId, setUpgradeWorkspaceId] = useState("");
   const [isUpgrading, setIsUpgrading] = useState(false);
   const [upgradeSuccess, setUpgradeSuccess] = useState(false);
+  const [upgradeCoupon, setUpgradeCoupon] = useState("");
+  const [selectedUpgradePlan, setSelectedUpgradePlan] = useState<"pro" | "team" | null>(null);
 
   const apiBase = process.env.NEXT_PUBLIC_HTTP_API ?? "http://localhost:4000";
 
@@ -244,6 +246,8 @@ export default function CodeExportPanel({
           stopProgressLoop();
           setShowProgress(false);
           setUpgradeWorkspaceId(errData.workspaceId);
+          setUpgradeCoupon("");
+          setSelectedUpgradePlan(null);
           setShowUpgradeModal(true);
           setState("idle");
           return;
@@ -306,8 +310,21 @@ export default function CodeExportPanel({
     void handleGenerate(trimmed);
   }, [purposeDraft, handleGenerate]);
 
-  const handleUpgrade = async (plan: "pro" | "team") => {
+  const handleUpgrade = async (plan?: "pro" | "team") => {
     if (!upgradeWorkspaceId) return;
+    const targetPlan = plan ?? selectedUpgradePlan;
+    if (!targetPlan) {
+      setErrorMsg("Select a plan first.");
+      return;
+    }
+
+    const coupon = upgradeCoupon.trim();
+    if (!coupon) {
+      setErrorMsg("Enter a coupon code to upgrade.");
+      return;
+    }
+
+    setSelectedUpgradePlan(targetPlan);
     setIsUpgrading(true);
     setErrorMsg("");
 
@@ -319,7 +336,7 @@ export default function CodeExportPanel({
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan: targetPlan, coupon }),
       });
 
       if (!res.ok) {
@@ -328,6 +345,8 @@ export default function CodeExportPanel({
       }
 
       setUpgradeSuccess(true);
+      setUpgradeCoupon("");
+      setSelectedUpgradePlan(null);
       setTimeout(() => {
         setShowUpgradeModal(false);
         setUpgradeSuccess(false);
@@ -762,7 +781,7 @@ export default function CodeExportPanel({
               <div>
                 <h3 style={{ fontSize: '1.4rem', fontWeight: '800', color: '#fafafa', marginBottom: '0.5rem', letterSpacing: '-0.02em' }}>Daily limit reached</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', lineHeight: '1.5', marginBottom: '1.75rem' }}>
-                  Free accounts are limited to <strong>5 premium generations</strong> per day. Upgrade to a subscription model to unlock unlimited AI generations.
+                  Free accounts are limited to <strong>5 premium generations</strong> per day. Upgrade with a valid coupon to unlock unlimited AI generations.
                 </p>
 
                 {errorMsg && (
@@ -771,9 +790,30 @@ export default function CodeExportPanel({
                   </div>
                 )}
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '2rem' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1.25rem' }}>
                   {/* Pro Plan */}
-                  <div style={{ border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', padding: '1.25rem', background: 'rgba(255,255,255,0.01)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => !isUpgrading && setSelectedUpgradePlan("pro")}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        if (!isUpgrading) setSelectedUpgradePlan("pro");
+                      }
+                    }}
+                    style={{
+                      border: selectedUpgradePlan === "pro" ? '1px solid var(--accent)' : '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: '12px',
+                      padding: '1.25rem',
+                      background: selectedUpgradePlan === "pro" ? 'rgba(99,102,241,0.08)' : 'rgba(255,255,255,0.01)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      cursor: isUpgrading ? 'default' : 'pointer',
+                      outline: 'none',
+                    }}
+                  >
                     <div>
                       <h4 style={{ fontWeight: '700', fontSize: '1rem', color: '#fafafa', marginBottom: '0.25rem' }}>Pro Plan</h4>
                       <div style={{ fontSize: '1.5rem', fontWeight: '800', color: 'var(--accent-hover)', marginBottom: '0.75rem' }}>
@@ -785,17 +825,35 @@ export default function CodeExportPanel({
                         <li>✓ Up to 5 collaborators</li>
                       </ul>
                     </div>
-                    <button
-                      disabled={isUpgrading}
-                      onClick={() => handleUpgrade("pro")}
-                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', background: 'var(--accent)', color: 'white', border: 'none', fontWeight: '600', fontSize: '0.8rem', cursor: 'pointer', transition: 'opacity 0.15s' }}
-                    >
-                      {isUpgrading ? "Upgrading..." : "Select Pro"}
-                    </button>
+                    <div style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', background: selectedUpgradePlan === "pro" ? 'var(--accent)' : 'rgba(255,255,255,0.06)', color: selectedUpgradePlan === "pro" ? 'white' : 'var(--text-muted)', border: 'none', fontWeight: '600', fontSize: '0.8rem', textAlign: 'center' }}>
+                      {selectedUpgradePlan === "pro" ? "Selected" : "Select Pro"}
+                    </div>
                   </div>
 
                   {/* Team Plan */}
-                  <div style={{ border: '1px solid var(--accent)', borderRadius: '12px', padding: '1.25rem', background: 'rgba(99,102,241,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', position: 'relative' }}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => !isUpgrading && setSelectedUpgradePlan("team")}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        if (!isUpgrading) setSelectedUpgradePlan("team");
+                      }
+                    }}
+                    style={{
+                      border: selectedUpgradePlan === "team" ? '1px solid var(--accent)' : '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '12px',
+                      padding: '1.25rem',
+                      background: selectedUpgradePlan === "team" ? 'rgba(99,102,241,0.08)' : 'rgba(99,102,241,0.04)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      position: 'relative',
+                      cursor: isUpgrading ? 'default' : 'pointer',
+                      outline: 'none',
+                    }}
+                  >
                     <div style={{ position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)', background: 'var(--accent)', color: 'white', fontSize: '0.6rem', padding: '2px 8px', borderRadius: '20px', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Best Value</div>
                     <div>
                       <h4 style={{ fontWeight: '700', fontSize: '1rem', color: '#fafafa', marginBottom: '0.25rem' }}>Team Plan</h4>
@@ -809,23 +867,76 @@ export default function CodeExportPanel({
                         <li>✓ Priority generation speed</li>
                       </ul>
                     </div>
-                    <button
-                      disabled={isUpgrading}
-                      onClick={() => handleUpgrade("team")}
-                      style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', background: 'linear-gradient(135deg, #a855f7, #6366f1)', color: 'white', border: 'none', fontWeight: '700', fontSize: '0.8rem', cursor: 'pointer', transition: 'opacity 0.15s' }}
-                    >
-                      {isUpgrading ? "Upgrading..." : "Select Team"}
-                    </button>
+                    <div style={{ width: '100%', padding: '0.55rem', borderRadius: '8px', background: selectedUpgradePlan === "team" ? 'linear-gradient(135deg, #a855f7, #6366f1)' : 'rgba(255,255,255,0.06)', color: selectedUpgradePlan === "team" ? 'white' : 'var(--text-muted)', border: 'none', fontWeight: '700', fontSize: '0.8rem', textAlign: 'center' }}>
+                      {selectedUpgradePlan === "team" ? "Selected" : "Select Team"}
+                    </div>
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                  <button
+                {/* Coupon verification — required until payment is integrated */}
+                <div style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.7rem', fontWeight: 600, color: 'var(--text-dim)', marginBottom: '0.35rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                    Coupon code
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="off"
                     disabled={isUpgrading}
-                    onClick={() => setShowUpgradeModal(false)}
+                    value={upgradeCoupon}
+                    onChange={(e) => {
+                      setUpgradeCoupon(e.target.value.replace(/\s/g, "").slice(0, 32));
+                      if (errorMsg) setErrorMsg("");
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void handleUpgrade();
+                    }}
+                    placeholder="Enter coupon to unlock upgrade"
+                    style={{
+                      width: '100%',
+                      padding: '0.65rem 0.75rem',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255,255,255,0.12)',
+                      background: 'rgba(0,0,0,0.35)',
+                      color: '#fafafa',
+                      fontSize: '0.9rem',
+                      letterSpacing: '0.08em',
+                      outline: 'none',
+                    }}
+                  />
+                  <p style={{ margin: '0.45rem 0 0', fontSize: '0.72rem', color: 'var(--text-dim)', lineHeight: 1.4 }}>
+                    Payment is not live yet. Upgrades are protected by coupon verification only.
+                  </p>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', alignItems: 'center' }}>
+                  <button
+                    type="button"
+                    disabled={isUpgrading}
+                    onClick={() => {
+                      setShowUpgradeModal(false);
+                      setUpgradeCoupon("");
+                      setSelectedUpgradePlan(null);
+                      setErrorMsg("");
+                    }}
                     style={{ background: 'transparent', border: 'none', color: 'var(--text-dim)', fontSize: '0.8rem', cursor: 'pointer', padding: '0.5rem 1rem' }}
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isUpgrading || !selectedUpgradePlan || !upgradeCoupon.trim()}
+                    onClick={() => void handleUpgrade()}
+                    className="premium-generate-btn"
+                    style={{
+                      margin: 0,
+                      width: 'auto',
+                      padding: '0.55rem 1rem',
+                      opacity: isUpgrading || !selectedUpgradePlan || !upgradeCoupon.trim() ? 0.5 : 1,
+                      cursor: isUpgrading || !selectedUpgradePlan || !upgradeCoupon.trim() ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {isUpgrading ? "Verifying…" : `Confirm ${selectedUpgradePlan === "team" ? "Team" : selectedUpgradePlan === "pro" ? "Pro" : ""} upgrade`}
                   </button>
                 </div>
               </div>
