@@ -646,6 +646,22 @@ input:focus {
   border-radius: var(--radius-md);
   backdrop-filter: blur(12px);
   box-shadow: var(--shadow-md);
+  touch-action: none;
+  user-select: none;
+}
+
+.viewport-controls-grip {
+  cursor: grab;
+  color: var(--text-dim) !important;
+}
+
+.viewport-controls-grip:active,
+.viewport-controls.dragging .viewport-controls-grip {
+  cursor: grabbing;
+}
+
+.viewport-controls-grip:hover {
+  color: var(--text-muted) !important;
 }
 
 .viewport-controls button {

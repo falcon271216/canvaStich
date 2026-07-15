@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, type PointerEvent as ReactPointerEvent } from "react";
 import { useDrawingSocket } from "../hooks/useDrawingSocket";
 import {
   useCanvasManager,
@@ -10,7 +10,7 @@ import {
 } from "../hooks/useCanvasManager";
 import DrawingToolSelector, { ToolType } from "./DrawingToolSelector";
 import StrokePropertiesPanel from "./StrokePropertiesPanel";
-import { Cpu, Zap, ArrowLeft, BarChart3, Radio, Users, User } from "lucide-react";
+import { Cpu, ArrowLeft, BarChart3, Radio, Users, User, Minus, Plus, Maximize2, GripVertical } from "lucide-react";
 import AnalysisPanel, { type AnalysisPanelHandle } from "./AnalysisPanel";
 import ChatPanel, { type ChatMessage } from "./ChatPanel";
 import LiveCursors, { type CursorData } from "./LiveCursors";
@@ -41,7 +41,6 @@ import {
   scaleWireframeRect,
   type WireframeShapeData,
 } from "../lib/wireframeGroups";
-import { Minus, Plus, Maximize2 } from "lucide-react";
 
 type BoardDetection = UIDetectionResult & {
   id: string;
@@ -97,6 +96,82 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
   /* ── Analysis Panel state ── */
   const [analysisPanelCollapsed, setAnalysisPanelCollapsed] = useState(false);
   const [analysisPanelWidth, setAnalysisPanelWidth] = useState(320);
+
+  /* ── Draggable zoom controls ── */
+  const [zoomCtrlPos, setZoomCtrlPos] = useState<{ x: number; y: number } | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const raw = localStorage.getItem("sketchui-zoom-controls-pos");
+      if (raw) {
+        const parsed = JSON.parse(raw) as { x?: number; y?: number };
+        if (typeof parsed.x === "number" && typeof parsed.y === "number") {
+          return { x: parsed.x, y: parsed.y };
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    return null;
+  });
+  const zoomCtrlDragRef = useRef<{
+    startX: number;
+    startY: number;
+    origX: number;
+    origY: number;
+  } | null>(null);
+  const zoomCtrlElRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!zoomCtrlPos) return;
+    try {
+      localStorage.setItem("sketchui-zoom-controls-pos", JSON.stringify(zoomCtrlPos));
+    } catch {
+      /* ignore */
+    }
+  }, [zoomCtrlPos]);
+
+  const onZoomCtrlPointerDown = useCallback((e: ReactPointerEvent) => {
+    if (!(e.target as HTMLElement).closest(".viewport-controls-grip")) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const el = zoomCtrlElRef.current;
+    const parent = viewportRef.current;
+    if (!el || !parent) return;
+    const rect = el.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    zoomCtrlDragRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      origX: rect.left - parentRect.left,
+      origY: rect.top - parentRect.top,
+    };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }, []);
+
+  const onZoomCtrlPointerMove = useCallback((e: ReactPointerEvent) => {
+    const drag = zoomCtrlDragRef.current;
+    const parent = viewportRef.current;
+    const el = zoomCtrlElRef.current;
+    if (!drag || !parent || !el) return;
+    const parentRect = parent.getBoundingClientRect();
+    const elW = el.offsetWidth;
+    const elH = el.offsetHeight;
+    let nextX = drag.origX + (e.clientX - drag.startX);
+    let nextY = drag.origY + (e.clientY - drag.startY);
+    nextX = Math.max(8, Math.min(nextX, parentRect.width - elW - 8));
+    nextY = Math.max(8, Math.min(nextY, parentRect.height - elH - 8));
+    setZoomCtrlPos({ x: nextX, y: nextY });
+  }, []);
+
+  const onZoomCtrlPointerUp = useCallback((e: ReactPointerEvent) => {
+    if (!zoomCtrlDragRef.current) return;
+    zoomCtrlDragRef.current = null;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const clampPaletteWidth = useCallback((w: number) => Math.min(420, Math.max(160, w)), []);
   const clampAnalysisWidth = useCallback((w: number) => Math.min(560, Math.max(240, w)), []);
@@ -1637,7 +1712,27 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               <LiveCursors cursors={cursorsRef.current} key={cursorsVersion} />
             </div>
 
-            <div className="viewport-controls">
+            <div
+              ref={zoomCtrlElRef}
+              className="viewport-controls"
+              style={
+                zoomCtrlPos
+                  ? { left: zoomCtrlPos.x, top: zoomCtrlPos.y, bottom: "auto", right: "auto" }
+                  : undefined
+              }
+              onPointerDown={onZoomCtrlPointerDown}
+              onPointerMove={onZoomCtrlPointerMove}
+              onPointerUp={onZoomCtrlPointerUp}
+              onPointerCancel={onZoomCtrlPointerUp}
+            >
+              <button
+                type="button"
+                className="viewport-controls-grip"
+                title="Drag to move zoom controls"
+                aria-label="Move zoom controls"
+              >
+                <GripVertical size={14} />
+              </button>
               <button type="button" title="Zoom out (Ctrl+-)" onClick={zoomOut} aria-label="Zoom out">
                 <Minus size={14} />
               </button>
@@ -1665,11 +1760,6 @@ export default function DrawingBoard({ roomId, token }: { roomId: string; token:
               </span>
             </div>
           )}
-
-          <div className="draw-hint">
-            <Zap size={12} />
-            <span>UI components detected via <strong>SketchUI</strong> pipeline</span>
-          </div>
 
           {/* Chat panel */}
           <ChatPanel

@@ -322,22 +322,53 @@ export function openReactPreviewInNewTab(reactCode: string, componentNameHint?: 
   if (win) return;
 
   // Popup blocked — write into about:blank (same-origin inheritance)
-  const html = buildReactPreviewHtml(reactCode, name);
-  const blank = window.open("about:blank", "_blank");
-  if (blank) {
-    try {
-      blank.document.open();
-      blank.document.write(html);
-      blank.document.close();
-      return;
-    } catch (_) {
-      try {
-        blank.close();
-      } catch (_) {}
-    }
+  if (fillReactPreviewWindow(window.open("about:blank", "_blank"), reactCode, name)) {
+    return;
   }
 
   alert("Please allow popups for SketchUI, then click Open Full Preview again.");
+}
+
+/**
+ * Write a React preview into an already-opened window (popup-safe after async work).
+ * Prefer navigating to /preview/react when sessionStorage is available.
+ */
+export function fillReactPreviewWindow(
+  win: Window | null,
+  reactCode: string,
+  componentNameHint?: string,
+): boolean {
+  if (!win || win.closed) return false;
+
+  const name =
+    componentNameHint?.replace(/[^a-zA-Z0-9]/g, "") ||
+    detectReactComponentName(cleanReactCodeForPreview(reactCode));
+
+  try {
+    sessionStorage.setItem("sketchui-react-code", reactCode);
+    sessionStorage.setItem("sketchui-react-name", name);
+  } catch (err) {
+    console.warn("[SketchUI] sessionStorage unavailable", err);
+  }
+
+  try {
+    win.location.href = `${window.location.origin}/preview/react`;
+    win.focus();
+    return true;
+  } catch (_) {
+    // Fall through to document.write
+  }
+
+  try {
+    const html = buildReactPreviewHtml(reactCode, name);
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 export function mountReactPreviewInIframe(

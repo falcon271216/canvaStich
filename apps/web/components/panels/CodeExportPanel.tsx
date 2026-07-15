@@ -113,16 +113,87 @@ const WAIT_TIPS = [
 
 /* ────────────────────── new tab preview ────────────────────── */
 
+const PREVIEW_LOADING_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>SketchUI Preview</title>
+  <style>
+    html, body { height: 100%; margin: 0; background: #09090b; color: #a1a1aa; font-family: ui-sans-serif, system-ui, sans-serif; }
+    .wrap { min-height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 24px; text-align: center; }
+    .spin { width: 36px; height: 36px; border: 3px solid rgba(99,102,241,0.25); border-top-color: #818cf8; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    h1 { margin: 0; font-size: 1.05rem; color: #e4e4e7; font-weight: 600; }
+    p { margin: 0; font-size: 0.85rem; max-width: 280px; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="spin"></div>
+    <h1>Generating your UI…</h1>
+    <p>This tab will show the live preview as soon as generation finishes.</p>
+  </div>
+</body>
+</html>`;
+
+/** Open blank preview tab during a user gesture (survives async fetch). */
+function reservePreviewTab(): Window | null {
+  const win = window.open("about:blank", "_blank");
+  if (!win) return null;
+  try {
+    win.document.open();
+    win.document.write(PREVIEW_LOADING_HTML);
+    win.document.close();
+  } catch {
+    // Tab may still be usable for navigation later
+  }
+  return win;
+}
+
+function fillHtmlPreviewTab(win: Window | null, htmlCode: string): boolean {
+  if (!win || win.closed) return false;
+  try {
+    const blob = new Blob([htmlCode], { type: "text/html" });
+    const url = URL.createObjectURL(blob);
+    win.location.href = url;
+    win.focus();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return true;
+  } catch {
+    try {
+      win.document.open();
+      win.document.write(htmlCode);
+      win.document.close();
+      win.focus();
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+function closePreviewTab(win: Window | null) {
+  if (!win || win.closed) return;
+  try {
+    win.close();
+  } catch {
+    /* ignore */
+  }
+}
+
 function openPreviewInNewTab(htmlCode: string) {
-  const blob = new Blob([htmlCode], { type: 'text/html' });
+  const blob = new Blob([htmlCode], { type: "text/html" });
   const url = URL.createObjectURL(blob);
-  
-  const previewTab = window.open(url, '_blank');
-  // Don't revoke too early — give fonts and external resources time to load
+  window.open(url, "_blank");
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
-import { openReactPreviewInNewTab, cleanReactCodeForPreview, mountReactPreviewInIframe } from "../../lib/reactPreviewShell";
+import {
+  openReactPreviewInNewTab,
+  cleanReactCodeForPreview,
+  mountReactPreviewInIframe,
+  fillReactPreviewWindow,
+} from "../../lib/reactPreviewShell";
 /* ────────────────────── component ────────────────────── */
 
 export default function CodeExportPanel({
@@ -148,6 +219,8 @@ export default function CodeExportPanel({
   const [errorMsg, setErrorMsg] = useState("");
   const autoGenRef = useRef(false);
   const previewFrameRef = useRef<HTMLIFrameElement | null>(null);
+  /** Reserved during user click so auto-preview isn't blocked after the API returns. */
+  const previewTabRef = useRef<Window | null>(null);
 
   /* ── Progress / engagement state ── */
   const [showProgress, setShowProgress] = useState(false);
@@ -189,6 +262,11 @@ export default function CodeExportPanel({
     setTipIndex(0);
     setStatusLabel(EARLY_STEPS[0]!);
     progressStartRef.current = Date.now();
+
+    // Open preview tab NOW (user gesture) — browsers block window.open after await
+    if (!previewTabRef.current || previewTabRef.current.closed) {
+      previewTabRef.current = reservePreviewTab();
+    }
 
     // Asymptotic progress: creeps toward ~92% so the bar never feels stuck
     const tickProgress = () => {
@@ -245,6 +323,8 @@ export default function CodeExportPanel({
         if (errData.workspaceId) {
           stopProgressLoop();
           setShowProgress(false);
+          closePreviewTab(previewTabRef.current);
+          previewTabRef.current = null;
           setUpgradeWorkspaceId(errData.workspaceId);
           setUpgradeCoupon("");
           setSelectedUpgradePlan(null);
@@ -280,12 +360,20 @@ export default function CodeExportPanel({
       setActiveTab("preview");
       onGenerationComplete?.();
 
-      // Auto-open preview tab immediately
-      setTimeout(() => {
-        if (effectiveFramework === "html") openPreviewInNewTab(code);
-        else openReactPreviewInNewTab(code, componentName);
-      }, 100);
+      // Fill the tab reserved at click-time (survives popup blockers after async)
+      const reserved = previewTabRef.current;
+      let opened = false;
+      if (effectiveFramework === "html") {
+        opened = fillHtmlPreviewTab(reserved, code);
+        if (!opened) openPreviewInNewTab(code);
+      } else {
+        opened = fillReactPreviewWindow(reserved, code, componentName);
+        if (!opened) openReactPreviewInNewTab(code, componentName);
+      }
+      previewTabRef.current = opened ? reserved : null;
     } catch (err: any) {
+      closePreviewTab(previewTabRef.current);
+      previewTabRef.current = null;
       setState("error");
       setErrorMsg(err?.message || "Generation failed. Please try again.");
     } finally {
@@ -328,6 +416,11 @@ export default function CodeExportPanel({
     setIsUpgrading(true);
     setErrorMsg("");
 
+    // Reserve preview tab on this click so post-upgrade generate can fill it
+    if (!previewTabRef.current || previewTabRef.current.closed) {
+      previewTabRef.current = reservePreviewTab();
+    }
+
     try {
       const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
       const res = await fetch(`${apiBase}/api/workspaces/${upgradeWorkspaceId}/upgrade`, {
@@ -354,6 +447,8 @@ export default function CodeExportPanel({
         handleGenerate(purpose.trim() || undefined);
       }, 1500);
     } catch (err: any) {
+      closePreviewTab(previewTabRef.current);
+      previewTabRef.current = null;
       setErrorMsg(err.message || "Failed to upgrade workspace.");
       setIsUpgrading(false);
     }
